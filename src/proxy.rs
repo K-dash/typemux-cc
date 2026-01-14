@@ -375,18 +375,37 @@ impl LspProxy {
         tracing::info!(session = session, "Sending initialized to backend");
         new_backend.send_message(&initialized_msg).await?;
 
-        // 6. 全ドキュメント復元（Phase 3b-2）
+        // 6. ドキュメント復元（Phase 3b-2）
+        // 新しい venv の親ディレクトリ配下にあるドキュメントのみを復元
+        let venv_parent = new_venv.parent().map(|p| p.to_path_buf());
         let total_docs = self.state.open_documents.len();
         let mut restored = 0;
+        let mut skipped = 0;
         let mut failed = 0;
 
         tracing::info!(
             session = session,
             total_docs = total_docs,
+            venv_parent = ?venv_parent.as_ref().map(|p| p.display().to_string()),
             "Starting document restoration"
         );
 
         for (url, doc) in &self.state.open_documents {
+            // venv の親ディレクトリ配下にあるドキュメントのみを復元
+            let should_restore = match (url.to_file_path().ok(), &venv_parent) {
+                (Some(file_path), Some(venv_parent)) => file_path.starts_with(venv_parent),
+                _ => false, // file:// URL でない、または venv_parent がない場合はスキップ
+            };
+
+            if !should_restore {
+                skipped += 1;
+                tracing::debug!(
+                    session = session,
+                    uri = %url,
+                    "Skipping document from different venv"
+                );
+                continue;
+            }
             // 先に必要な値をコピー（await 前に借用終了させる）
             let uri_str = url.to_string();
             let language_id = doc.language_id.clone();
@@ -437,6 +456,7 @@ impl LspProxy {
         tracing::info!(
             session = session,
             restored = restored,
+            skipped = skipped,
             failed = failed,
             total = total_docs,
             "Document restoration completed"
