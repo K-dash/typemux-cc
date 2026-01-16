@@ -1,0 +1,10 @@
+{
+  "plugins": [
+    {
+      "name": "pyright-lsp-proxy",
+      "source": "./",
+      "description": "Pyright LSP proxy for monorepo with automatic .venv switching",
+      "version": "0.1.0"
+    }
+  ]
+}
