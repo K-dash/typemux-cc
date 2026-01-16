@@ -1,0 +1,10 @@
+{
+  "pyright-lsp-proxy": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/pyright-lsp-proxy",
+    "args": [],
+    "extensionToLanguage": {
+      ".py": "python",
+      ".pyi": "python"
+    }
+  }
+}
