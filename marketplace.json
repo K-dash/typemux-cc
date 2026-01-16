@@ -1,8 +1,10 @@
 {
+  "marketplaceId": "pyright-lsp-proxy-marketplace",
   "plugins": [
     {
-      "name": "pyright-lsp-proxy",
-      "source": "./",
+      "id": "pyright-lsp-proxy",
+      "name": "Pyright LSP Proxy",
+      "source": ".",
       "description": "Pyright LSP proxy for monorepo with automatic .venv switching",
       "version": "0.1.0"
     }
