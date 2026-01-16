@@ -1,5 +1,5 @@
 {
-  "name": "pyright-lsp-proxy",
+  "name": "pyright-lsp-proxy-marketplace",
   "owner": {
     "name": "K-dash"
   },
@@ -8,8 +8,7 @@
       "name": "pyright-lsp-proxy",
       "source": ".",
       "description": "Pyright LSP proxy for monorepo with automatic .venv switching",
-      "version": "0.1.0",
-      "strict": false
+      "version": "0.1.0"
     }
   ]
 }
