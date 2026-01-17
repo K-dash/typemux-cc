@@ -122,7 +122,63 @@ impl LspProxy {
                         if is_disabled { continue; }  // Disabled時はbackendに送らない
                     }
 
-                    // 3. Disabled 時はリクエストにエラーを返す
+                    // 3. Request-based venv 切り替え（Disabled 時も実行）
+                    const VENV_CHECK_METHODS: &[&str] = &[
+                        "textDocument/hover",
+                        "textDocument/definition",
+                        "textDocument/references",
+                        "textDocument/documentSymbol",
+                        "textDocument/typeDefinition",
+                        "textDocument/implementation",
+                    ];
+
+                    if let Some(m) = method {
+                        if VENV_CHECK_METHODS.contains(&m) {
+                            if let Some(url) = Self::extract_text_document_uri(&msg) {
+                                if let Ok(file_path) = url.to_file_path() {
+                                    // キャッシュから venv を取得（O(1)）
+                                    let target_venv = if let Some(doc) =
+                                        self.state.open_documents.get(&url)
+                                    {
+                                        doc.venv.clone()
+                                    } else {
+                                        // didOpen が来ていない URI → 探索（例外経路）
+                                        tracing::debug!(uri = %url, "URI not in cache, searching venv");
+                                        venv::find_venv(
+                                            &file_path,
+                                            self.state.git_toplevel.as_deref(),
+                                        )
+                                        .await?
+                                    };
+
+                                    // 共通関数で状態遷移
+                                    let switched = self
+                                        .transition_backend_state(
+                                            &mut backend_state,
+                                            &mut client_writer,
+                                            target_venv.as_deref(),
+                                            &file_path,
+                                        )
+                                        .await?;
+
+                                    // ★ 切り替えが発生したら RequestCancelled で返す
+                                    if switched && msg.is_request() {
+                                        tracing::info!(
+                                            method = m,
+                                            uri = %url,
+                                            "Request cancelled due to venv switch"
+                                        );
+                                        let cancel_response =
+                                            Self::create_request_cancelled_response(&msg);
+                                        client_writer.write_message(&cancel_response).await?;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Disabled 時はリクエストにエラーを返す（VENV_CHECK_METHODS 以外）
                     if is_disabled && msg.is_request() {
                         let error_message = "pyright-lsp-proxy: .venv not found (strict mode). Create .venv or run hooks.";
                         if let Some((reason, last_file)) = backend_state.disabled_info() {
@@ -139,7 +195,7 @@ impl LspProxy {
                         continue;
                     }
 
-                    // 4. Running 時は backend に転送
+                    // 5. Running 時は backend に転送
                     if let BackendState::Running { backend, .. } = &mut backend_state {
                         backend.send_message(&msg).await?;
                     }
@@ -169,6 +225,108 @@ impl LspProxy {
                     // クライアントに転送
                     client_writer.write_message(&msg).await?;
                 }
+            }
+        }
+    }
+
+    /// LSP request の params から textDocument.uri を抽出
+    fn extract_text_document_uri(msg: &RpcMessage) -> Option<url::Url> {
+        let params = msg.params.as_ref()?;
+        let text_document = params.get("textDocument")?;
+        let uri_str = text_document.get("uri")?.as_str()?;
+        url::Url::parse(uri_str).ok()
+    }
+
+    /// RequestCancelled レスポンスを生成
+    fn create_request_cancelled_response(msg: &RpcMessage) -> RpcMessage {
+        RpcMessage {
+            jsonrpc: "2.0".to_string(),
+            id: msg.id.clone(),
+            method: None,
+            params: None,
+            result: None,
+            error: Some(crate::message::RpcError {
+                code: -32800,
+                message: "Request cancelled due to venv switch".to_string(),
+                data: None,
+            }),
+        }
+    }
+
+    /// venv に基づいて backend の状態を遷移させる
+    /// 戻り値: 切り替えが発生したかどうか
+    async fn transition_backend_state(
+        &mut self,
+        backend_state: &mut BackendState,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+        target_venv: Option<&std::path::Path>,
+        trigger_file: &std::path::Path,
+    ) -> Result<bool, ProxyError> {
+        match (&*backend_state, target_venv) {
+            // Running + same venv → 何もしない
+            (BackendState::Running { active_venv, .. }, Some(venv)) if active_venv == venv => {
+                tracing::debug!(venv = %venv.display(), "Using same .venv as before");
+                Ok(false)
+            }
+
+            // Running + different venv → 切替
+            (BackendState::Running { .. }, Some(venv)) => {
+                tracing::warn!(
+                    current = ?backend_state.active_venv().map(|p| p.display().to_string()),
+                    found = %venv.display(),
+                    "Venv switch needed, restarting backend"
+                );
+
+                if let BackendState::Running { backend, .. } = backend_state {
+                    let new_backend = self
+                        .restart_backend_with_venv(backend, venv, client_writer)
+                        .await?;
+                    *backend_state = BackendState::Running {
+                        backend: Box::new(new_backend),
+                        active_venv: venv.to_path_buf(),
+                    };
+                }
+                Ok(true)
+            }
+
+            // Running + venv not found → Disabled へ
+            (BackendState::Running { .. }, None) => {
+                tracing::warn!(
+                    path = %trigger_file.display(),
+                    "No .venv found for this file, disabling backend"
+                );
+
+                if let BackendState::Running { backend, .. } = backend_state {
+                    self.disable_backend(backend, client_writer, trigger_file)
+                        .await?;
+                    *backend_state = BackendState::Disabled {
+                        reason: format!("No .venv found for file: {}", trigger_file.display()),
+                        last_file: Some(trigger_file.to_path_buf()),
+                    };
+                }
+                Ok(true)
+            }
+
+            // Disabled + venv found → Running へ復活
+            (BackendState::Disabled { .. }, Some(venv)) => {
+                tracing::info!(venv = %venv.display(), "Found .venv, spawning backend");
+                let new_backend = self.spawn_and_init_backend(venv, client_writer).await?;
+                *backend_state = BackendState::Running {
+                    backend: Box::new(new_backend),
+                    active_venv: venv.to_path_buf(),
+                };
+                Ok(true)
+            }
+
+            // Disabled + venv not found → そのまま
+            (BackendState::Disabled { reason, last_file }, None) => {
+                tracing::warn!(
+                    path = %trigger_file.display(),
+                    reason = reason.as_str(),
+                    last_file = ?last_file.as_ref().map(|p| p.display().to_string()),
+                    "No .venv found for this file (backend still disabled)"
+                );
+                Ok(false)
             }
         }
     }
@@ -217,25 +375,27 @@ impl LspProxy {
                                     "didOpen received"
                                 );
 
+                                // .venv 探索
+                                let found_venv =
+                                    venv::find_venv(&file_path, self.state.git_toplevel.as_deref())
+                                        .await?;
+
                                 // didOpen をキャッシュ（Disabled時の復活用）
                                 if let Some(text_content) = &text {
                                     let doc = crate::state::OpenDocument {
                                         language_id: language_id.clone(),
                                         version,
                                         text: text_content.clone(),
+                                        venv: found_venv.clone(),
                                     };
                                     self.state.open_documents.insert(url.clone(), doc);
                                     tracing::debug!(
                                         uri = %url,
                                         doc_count = self.state.open_documents.len(),
+                                        cached_venv = ?found_venv.as_ref().map(|p| p.display().to_string()),
                                         "Document cached"
                                     );
                                 }
-
-                                // .venv 探索
-                                let found_venv =
-                                    venv::find_venv(&file_path, self.state.git_toplevel.as_deref())
-                                        .await?;
 
                                 // 状態遷移ロジック（Strict venv mode）
                                 tracing::debug!(
@@ -245,85 +405,13 @@ impl LspProxy {
                                     "State transition check"
                                 );
 
-                                match (&*backend_state, found_venv.as_ref()) {
-                                    // Running + venv found (same) → 何もしない
-                                    (BackendState::Running { active_venv, .. }, Some(venv))
-                                        if active_venv == venv =>
-                                    {
-                                        tracing::debug!(
-                                            venv = %venv.display(),
-                                            "Using same .venv as before"
-                                        );
-                                    }
-
-                                    // Running + venv found (different) → 切替
-                                    (BackendState::Running { .. }, Some(venv)) => {
-                                        tracing::warn!(
-                                            current = ?backend_state.active_venv().map(|p| p.display().to_string()),
-                                            found = %venv.display(),
-                                            "Venv switch needed, restarting backend"
-                                        );
-
-                                        if let BackendState::Running { backend, .. } = backend_state {
-                                            let new_backend = self
-                                                .restart_backend_with_venv(backend, venv, client_writer)
-                                                .await?;
-
-                                            *backend_state = BackendState::Running {
-                                                backend: Box::new(new_backend),
-                                                active_venv: venv.clone(),
-                                            };
-                                        }
-                                    }
-
-                                    // Running + venv not found → Disabled へ
-                                    (BackendState::Running { .. }, None) => {
-                                        tracing::warn!(
-                                            path = %file_path.display(),
-                                            "No .venv found for this file, disabling backend"
-                                        );
-
-                                        if let BackendState::Running { backend, .. } = backend_state {
-                                            self.disable_backend(backend, client_writer, &file_path)
-                                                .await?;
-
-                                            *backend_state = BackendState::Disabled {
-                                                reason: format!(
-                                                    "No .venv found for file: {}",
-                                                    file_path.display()
-                                                ),
-                                                last_file: Some(file_path.clone()),
-                                            };
-                                        }
-                                    }
-
-                                    // Disabled + venv found → Running へ復活
-                                    (BackendState::Disabled { .. }, Some(venv)) => {
-                                        tracing::info!(
-                                            venv = %venv.display(),
-                                            "Found .venv, spawning backend"
-                                        );
-
-                                        let new_backend = self.spawn_and_init_backend(venv, client_writer).await?;
-
-                                        *backend_state = BackendState::Running {
-                                            backend: Box::new(new_backend),
-                                            active_venv: venv.clone(),
-                                        };
-                                    }
-
-                                    // Disabled + venv not found → そのまま
-                                    (BackendState::Disabled { .. }, None) => {
-                                        if let Some((reason, last_file)) = backend_state.disabled_info() {
-                                            tracing::warn!(
-                                                path = %file_path.display(),
-                                                reason = reason,
-                                                last_file = ?last_file.map(|p| p.display().to_string()),
-                                                "No .venv found for this file (backend still disabled)"
-                                            );
-                                        }
-                                    }
-                                }
+                                self.transition_backend_state(
+                                    backend_state,
+                                    client_writer,
+                                    found_venv.as_deref(),
+                                    &file_path,
+                                )
+                                .await?;
                             }
                         }
                     }

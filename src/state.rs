@@ -9,6 +9,7 @@ pub struct OpenDocument {
     pub language_id: String,
     pub version: i32,
     pub text: String,
+    pub venv: Option<PathBuf>,
 }
 
 /// プロキシが保持する状態（Phase 3b-2: 複数ドキュメント復元版）
