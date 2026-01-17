@@ -304,7 +304,7 @@ impl LspProxy {
                                             "Found .venv, spawning backend"
                                         );
 
-                                        let new_backend = self.spawn_and_init_backend(venv).await?;
+                                        let new_backend = self.spawn_and_init_backend(venv, client_writer).await?;
 
                                         *backend_state = BackendState::Running {
                                             backend: Box::new(new_backend),
@@ -688,6 +688,7 @@ impl LspProxy {
     async fn spawn_and_init_backend(
         &mut self,
         venv: &std::path::Path,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
     ) -> Result<PyrightBackend, ProxyError> {
         self.state.backend_session += 1;
         let session = self.state.backend_session;
@@ -799,6 +800,7 @@ impl LspProxy {
         let mut restored = 0;
         let mut skipped = 0;
         let mut failed = 0;
+        let mut skipped_uris: Vec<url::Url> = Vec::new();
 
         tracing::info!(
             session = session,
@@ -815,6 +817,7 @@ impl LspProxy {
 
             if !should_restore {
                 skipped += 1;
+                skipped_uris.push(url.clone());
                 tracing::debug!(
                     session = session,
                     uri = %url,
@@ -876,6 +879,26 @@ impl LspProxy {
             total = total_docs,
             "Document restoration completed"
         );
+
+        // スキップしたURIのdiagnosticsをクリア
+        if !skipped_uris.is_empty() {
+            let (ok, clear_failed) = self.clear_diagnostics_for_uris(&skipped_uris, client_writer).await;
+
+            if clear_failed == 0 {
+                tracing::info!(
+                    session = session,
+                    cleared_ok = ok,
+                    "Diagnostics cleared for skipped documents"
+                );
+            } else {
+                tracing::info!(
+                    session = session,
+                    cleared_ok = ok,
+                    cleared_failed = clear_failed,
+                    "Diagnostics clear partially failed for skipped documents"
+                );
+            }
+        }
 
         tracing::info!(
             session = session,
