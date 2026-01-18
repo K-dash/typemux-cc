@@ -1,13 +1,13 @@
 .PHONY: all check fmt lint test build clean
 
-# デフォルトターゲット: 全部実行
+# Default target: run all
 all: fmt lint test
 
-# フォーマット
+# Format
 fmt:
 	cargo fmt
 
-# フォーマットチェック（CI用）
+# Format check (for CI)
 fmt-check:
 	cargo fmt --check
 
@@ -15,25 +15,25 @@ fmt-check:
 lint:
 	cargo clippy -- -D warnings
 
-# テスト
+# Test
 test:
 	cargo test
 
-# ビルド
+# Build
 build:
 	cargo build
 
-# リリースビルド
+# Release build
 release:
 	cargo build --release
 
-# チェック（コンパイルのみ、バイナリ生成なし）
+# Check (compile only, no binary generation)
 check:
 	cargo check
 
-# クリーン
+# Clean
 clean:
 	cargo clean
 
-# CI用: fmt-check + lint + test
+# For CI: fmt-check + lint + test
 ci: fmt-check lint test

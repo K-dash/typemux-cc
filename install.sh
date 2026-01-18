@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-# Claude Plugin Root（環境変数から取得）
+# Claude Plugin Root (from environment variable)
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
 BIN_DIR="${PLUGIN_ROOT}/bin"
 BINARY_PATH="${BIN_DIR}/pyright-lsp-proxy"
 
-# バイナリが既に存在すれば何もしない
+# Skip if binary already exists
 if [ -f "${BINARY_PATH}" ]; then
   echo "[pyright-lsp-proxy] Binary already installed at ${BINARY_PATH}"
   exit 0
@@ -14,10 +14,10 @@ fi
 
 echo "[pyright-lsp-proxy] Installing binary..."
 
-# bin ディレクトリを作成
+# Create bin directory
 mkdir -p "${BIN_DIR}"
 
-# OS/アーキテクチャの検出
+# Detect OS/architecture
 OS=$(uname -s)
 ARCH=$(uname -m)
 
@@ -52,7 +52,7 @@ esac
 echo "[pyright-lsp-proxy] Detected platform: $OS $ARCH"
 echo "[pyright-lsp-proxy] Binary to download: $BINARY_NAME"
 
-# GitHub Release から最新バージョンの URL を取得
+# Get latest version URL from GitHub Release
 REPO="K-dash/pyright-lsp-proxy"
 LATEST_RELEASE=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest")
 DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | grep "browser_download_url.*${BINARY_NAME}" | cut -d '"' -f 4)
@@ -65,7 +65,7 @@ fi
 
 echo "[pyright-lsp-proxy] Downloading from: $DOWNLOAD_URL"
 
-# ダウンロードして実行権限を付与
+# Download and grant execute permission
 if ! curl -L -o "${BINARY_PATH}" "$DOWNLOAD_URL"; then
   echo "[pyright-lsp-proxy] ERROR: Failed to download binary" >&2
   exit 1
