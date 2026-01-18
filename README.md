@@ -9,6 +9,7 @@ pyright-lsp-proxy breaks through this limitation, reflecting virtual environment
 
 - **venv switching in monorepos**: Pyright assumes a single venv, causing incorrect type checking and completions when moving between projects
 - **Dynamic .venv creation in worktrees**: When `.venv` is created later via hooks, etc., Claude Code restart was previously required
+- **Transparent switch on venv change**: LSP requests (hover, definition, etc.) are sent to the new backend after a switch, so the current request does not surface "Request cancelled"
 
 pyright-lsp-proxy restarts pyright-langserver in the background and automatically restores open documents. Claude Code always communicates with the proxy, so it doesn't notice backend switches.
 
@@ -19,7 +20,8 @@ pyright-lsp-proxy restarts pyright-langserver in the background and automaticall
 - macOS (arm64 only)
 - Linux (x86_64 / arm64)
 
-Windows is currently unsupported (due to path handling differences). Prebuilt binaries for Intel macOS are not provided.
+Windows is currently unsupported (due to path handling differences).
+Intel macOS users must build from source (prebuilt binaries are arm64 only).
 
 ### Prerequisites
 
@@ -136,6 +138,25 @@ my-monorepo/
 | 2. Open `project-a/src/main.py` | Detect `project-a/.venv` → start session 1                  |
 | 3. Open `project-b/src/main.py` | Detect `project-b/.venv` → switch to session 2              |
 | 4. Session 2 startup complete   | Restore only documents under project-b                      |
+
+### What Actually Happens
+
+When you switch from `project-a/main.py` to `project-b/main.py`:
+
+1. Proxy detects different `.venv` (project-a/.venv → project-b/.venv)
+2. Gracefully shuts down old backend (session 1)
+3. Spawns new backend with `VIRTUAL_ENV=project-b/.venv` (session 2)
+4. Restores open documents under project-b/ to new backend
+5. Clears diagnostics for documents outside project-b/
+6. **All LSP requests now use project-b dependencies**
+
+From the user's perspective: **Nothing visible happens. LSP just works.**
+
+### Cache Limitation (Important)
+
+If a file was opened before `.venv` existed, the cached venv stays `None`.
+Create `.venv` later? You must reopen the file (or refresh the document cache)
+to trigger venv detection for that file.
 
 ## Troubleshooting
 

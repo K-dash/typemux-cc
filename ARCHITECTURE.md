@@ -63,7 +63,10 @@ graph LR
 The proxy sits between Claude Code and pyright-langserver, performing:
 
 1. **Message relay**: Bidirectional forwarding of JSON-RPC messages
-2. **venv detection**: Search for `.venv` on `textDocument/didOpen` and some LSP requests
+2. **venv detection**: Search for `.venv` on:
+   - `textDocument/didOpen` (always)
+   - LSP requests: hover, definition, references, documentSymbol, typeDefinition, implementation
+   - NOTE: Cached documents reuse the last known venv and are not re-searched
 3. **Backend management**: Restart pyright-langserver when venv changes
 4. **State restoration**: Resend open documents after restart
 5. **Diagnostics cleanup**: Clear diagnostics for documents outside the switch target
@@ -244,7 +247,7 @@ sequenceDiagram
 | Document restoration       | Resend open files after switch              |
 | Selective restoration      | Restore only under `.venv` parent directory |
 | Incremental Sync           | `textDocument/didChange` partial update     |
-| Request cancellation       | Notify unresolved requests on restart       |
+| Transparent switch         | Switch backend before sending the request   |
 | Strict Venv Mode           | Disable backend when no venv                |
 
 ## Document State Cache
@@ -282,6 +285,94 @@ The proxy internally holds file contents received via `textDocument/didOpen` and
 - Only necessary files are held
 - Typically a few files (hundreds of KB to a few MB)
 
+### Selective Restoration Example
+
+When switching from project-a/.venv to project-b/.venv:
+
+**Open documents**:
+
+- `project-a/main.py` (version 1)
+- `project-a/utils.py` (version 1)
+- `project-b/main.py` (version 1)
+
+**Restoration behavior**:
+
+- ✅ `project-b/main.py` → Restored (same venv parent)
+- ❌ `project-a/main.py` → Skipped (different venv)
+- ❌ `project-a/utils.py` → Skipped (different venv)
+
+**Diagnostics clearing**:
+
+- Skipped documents get empty diagnostics sent to client
+- This clears stale errors from the old venv
+
+## Transparent Switch
+
+### The Problem
+
+When venv switched, previously pending requests were cancelled and returned `RequestCancelled`.
+This looked like "hover sometimes fails" to users.
+
+### The Solution
+
+The proxy now:
+
+1. Detects venv change **before** sending the request
+2. Switches backend (shutdown old, spawn new)
+3. Sends the request to the **new backend**
+4. Returns response to user
+
+From the user's perspective: **Hover/definition/etc. succeed on first try, even after venv switch.**
+
+### Implementation
+
+#### Session Tracking
+
+```rust
+pub enum BackendState {
+    Running {
+        backend: Box<PyrightBackend>,
+        active_venv: PathBuf,
+        session: u64,  // ★ Tracks which backend generation
+    },
+    // ...
+}
+```
+
+Each backend gets a unique session ID. Pending requests store which session they were sent to.
+
+#### Stale Response Detection
+
+```rust
+pub struct PendingRequest {
+    pub backend_session: u64,  // Which backend was this request sent to?
+}
+```
+
+If a response arrives from an old session (e.g., session=5 but current is session=6), it's discarded as stale.
+
+#### Flow
+
+```
+1. User hovers on project-a file
+2. ensure_backend_for_uri() detects project-a/.venv
+3. (Switch occurs: session 5 → 6)
+4. Request sent to session 6
+5. Response arrives from session 6
+6. User sees hover result (transparent!)
+```
+
+**Safety Mechanisms**:
+
+- Stale response check: `pending.backend_session != running.session` → discard
+- Session-specific pending cancellation: Only cancel requests from old session
+
+### Cache Limitation (Important)
+
+When a document is already cached, its venv is not re-searched on request.
+This means creating `.venv` **after** opening a file will not take effect for that file
+until it is reopened (or the document cache is refreshed).
+
 ## `.venv` Search Logic
 
 ### Search Algorithm
@@ -314,6 +405,62 @@ Determines initial virtual environment at startup:
 1. `.venv` at git toplevel
 2. `.venv` at cwd (current working directory)
 3. Start without venv if neither exists
+
+## Logging Configuration
+
+### Method 1: Environment Variables (Quick)
+
+```bash
+PYRIGHT_LSP_PROXY_LOG_FILE=/tmp/pyright-lsp-proxy.log ./target/release/pyright-lsp-proxy
+RUST_LOG=debug ./target/release/pyright-lsp-proxy
+```
+
+### Method 2: Config File (Persistent)
+
+When running as a Claude Code plugin, the wrapper script loads config from:
+
+```bash
+~/.config/pyright-lsp-proxy/config
+```
+
+**Setup**:
+
+```bash
+mkdir -p ~/.config/pyright-lsp-proxy
+cat > ~/.config/pyright-lsp-proxy/config << 'EOF'
+# Enable file output
+export PYRIGHT_LSP_PROXY_LOG_FILE="/tmp/pyright-lsp-proxy.log"
+
+# Adjust log level (optional)
+export RUST_LOG="pyright_lsp_proxy=debug"
+EOF
+
+# Restart Claude Code
+```
+
+### Log Levels
+
+| Level   | Use Case                                      |
+| ------- | --------------------------------------------- |
+| `debug` | Default. venv search details, LSP message method names |
+| `info`  | venv switches, session info only              |
+| `trace` | All search steps, detailed debugging          |
+
+### Useful Queries
+
+```bash
+# Real-time monitoring
+tail -f /tmp/pyright-lsp-proxy.log
+
+# Venv switches only
+grep "Venv switched" /tmp/pyright-lsp-proxy.log
+
+# Document restoration stats
+grep "Document restoration completed" /tmp/pyright-lsp-proxy.log
+
+# Session transitions
+grep "session=" /tmp/pyright-lsp-proxy.log | grep -E "(Starting|completed)"
+```
 
 ## Development
 
