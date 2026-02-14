@@ -271,6 +271,8 @@ Each backend process is spawned with `VIRTUAL_ENV` and `PATH` set to point at th
 
 ### LSP Not Working
 
+> **Tip**: Enable file logging first: add `TYPEMUX_CC_LOG_FILE=/tmp/typemux-cc.log` to your [config](#configuration).
+
 ```bash
 which pyright-langserver              # Check if backend is in PATH (or: which ty, which pyrefly)
 cat ~/.claude/settings.json | grep typemux  # Check plugin settings
