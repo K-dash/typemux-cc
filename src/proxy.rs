@@ -311,13 +311,13 @@ impl LspProxy {
                                                     uri = %url,
                                                     "No venv found, returning error"
                                                 );
-                                                let error_response = create_error_response(&msg, error_message);
+                                                let error_response = RpcMessage::error_response(&msg, error_message);
                                                 client_writer.write_message(&error_response).await?;
                                                 continue;
                                             }
                                             Err(e) => {
                                                 tracing::error!(error = ?e, "Failed to ensure backend in pool");
-                                                let error_response = create_error_response(&msg, &format!("pyright-lsp-proxy: backend error: {}", e));
+                                                let error_response = RpcMessage::error_response(&msg, &format!("pyright-lsp-proxy: backend error: {}", e));
                                                 client_writer.write_message(&error_response).await?;
                                                 continue;
                                             }
@@ -356,14 +356,14 @@ impl LspProxy {
                                 }
                             } else {
                                 // Backend disappeared (race with crash handling)
-                                let error_response = create_error_response(&msg, "pyright-lsp-proxy: backend not available");
+                                let error_response = RpcMessage::error_response(&msg, "pyright-lsp-proxy: backend not available");
                                 client_writer.write_message(&error_response).await?;
                             }
                         } else {
                             // No target backend — check if any backend exists
                             if self.state.pool.is_empty() {
                                 let error_message = "pyright-lsp-proxy: .venv not found (strict mode). Create .venv or run hooks.";
-                                let error_response = create_error_response(&msg, error_message);
+                                let error_response = RpcMessage::error_response(&msg, error_message);
                                 client_writer.write_message(&error_response).await?;
                             } else {
                                 // Forward to the first available backend (best effort for non-textDocument requests)
@@ -1356,21 +1356,5 @@ impl LspProxy {
         }
 
         Ok(())
-    }
-}
-
-/// Create error response
-fn create_error_response(request: &RpcMessage, message: &str) -> RpcMessage {
-    RpcMessage {
-        jsonrpc: "2.0".to_string(),
-        id: request.id.clone(),
-        method: None,
-        params: None,
-        result: None,
-        error: Some(crate::message::RpcError {
-            code: -32603,
-            message: message.to_string(),
-            data: None,
-        }),
     }
 }
