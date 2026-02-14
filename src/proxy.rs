@@ -37,15 +37,16 @@ impl LspProxy {
 
         // Pre-spawn backend if fallback venv found (but don't insert into pool yet —
         // wait for client's `initialize` to complete the handshake first)
-        let mut pending_initial_backend: Option<(PyrightBackend, PathBuf)> =
-            if let Some(venv) = fallback_venv {
-                tracing::info!(venv = %venv.display(), "Using fallback .venv, pre-spawning backend");
-                let backend = PyrightBackend::spawn(Some(&venv)).await?;
-                Some((backend, venv))
-            } else {
-                tracing::warn!("No fallback .venv found, starting with empty pool");
-                None
-            };
+        let mut pending_initial_backend: Option<(PyrightBackend, PathBuf)> = if let Some(venv) =
+            fallback_venv
+        {
+            tracing::info!(venv = %venv.display(), "Using fallback .venv, pre-spawning backend");
+            let backend = PyrightBackend::spawn(Some(&venv)).await?;
+            Some((backend, venv))
+        } else {
+            tracing::warn!("No fallback .venv found, starting with empty pool");
+            None
+        };
 
         let mut didopen_count = 0;
 
@@ -994,13 +995,13 @@ impl LspProxy {
             .state
             .open_documents
             .iter()
-            .filter(|(_, doc)| {
-                doc.venv.as_deref() == Some(venv_path)
-            })
+            .filter(|(_, doc)| doc.venv.as_deref() == Some(venv_path))
             .map(|(url, _)| url.clone())
             .collect();
 
-        let (ok, failed) = self.clear_diagnostics_for_uris(&uris_to_clear, client_writer).await;
+        let (ok, failed) = self
+            .clear_diagnostics_for_uris(&uris_to_clear, client_writer)
+            .await;
 
         if !uris_to_clear.is_empty() {
             tracing::info!(
@@ -1094,9 +1095,7 @@ impl LspProxy {
                                             .await
                                         {
                                             Ok(instance) => {
-                                                self.state
-                                                    .pool
-                                                    .insert(venv_path.clone(), instance);
+                                                self.state.pool.insert(venv_path.clone(), instance);
                                                 // didOpen was already restored during create_backend_instance
                                                 // (restore_documents_to_backend sends didOpen for matching docs)
                                                 return Ok(());
@@ -1176,10 +1175,7 @@ impl LspProxy {
     }
 
     /// Handle didChange
-    async fn handle_did_change(
-        &mut self,
-        msg: &RpcMessage,
-    ) -> Result<(), ProxyError> {
+    async fn handle_did_change(&mut self, msg: &RpcMessage) -> Result<(), ProxyError> {
         if let Some(params) = &msg.params {
             if let Some(text_document) = params.get("textDocument") {
                 if let Some(uri_str) = text_document.get("uri").and_then(|u| u.as_str()) {
@@ -1245,10 +1241,7 @@ impl LspProxy {
     }
 
     /// Handle didClose: remove document from cache
-    async fn handle_did_close(
-        &mut self,
-        msg: &RpcMessage,
-    ) -> Result<(), ProxyError> {
+    async fn handle_did_close(&mut self, msg: &RpcMessage) -> Result<(), ProxyError> {
         if let Some(params) = &msg.params {
             if let Some(text_document) = params.get("textDocument") {
                 if let Some(uri_str) = text_document.get("uri").and_then(|u| u.as_str()) {

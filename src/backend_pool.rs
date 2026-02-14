@@ -86,10 +86,7 @@ impl BackendPool {
     /// Find the LRU (least recently used) venv path.
     /// Prefers backends with no pending requests (caller provides the count).
     /// Returns None if pool is empty.
-    pub fn lru_venv(
-        &self,
-        pending_count_fn: impl Fn(&PathBuf, u64) -> usize,
-    ) -> Option<PathBuf> {
+    pub fn lru_venv(&self, pending_count_fn: impl Fn(&PathBuf, u64) -> usize) -> Option<PathBuf> {
         // First try: find LRU among backends with 0 pending requests
         let no_pending_lru = self
             .backends
@@ -200,5 +197,10 @@ pub fn spawn_reader_task(
 pub fn shutdown_backend_instance(instance: BackendInstance) {
     instance.reader_task.abort();
     let venv_display = instance.venv_path.display().to_string();
-    shutdown_fire_and_forget(instance.writer, instance.child, instance.next_id, venv_display);
+    shutdown_fire_and_forget(
+        instance.writer,
+        instance.child,
+        instance.next_id,
+        venv_display,
+    );
 }
