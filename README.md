@@ -52,6 +52,8 @@ npm install -g pyright
 
 typemux-cc manages a pool of LSP backends (one per `.venv`) and routes requests to the correct one. Claude Code always communicates with the proxy, so it doesn't notice backend switches.
 
+> **Why LSP over text search?** In monorepos, grep returns false positives from same-named types across projects. LSP resolves references at the type-system level. See [real-world benchmarks](./docs/why-lsp.md).
+
 ## Supported Backends
 
 | Backend | Command | Status |
