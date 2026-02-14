@@ -56,17 +56,9 @@ typemux-cc manages a pool of LSP backends (one per `.venv`) and routes requests 
 
 | Backend | Command | Status |
 |---------|---------|--------|
-| [pyright](https://github.com/microsoft/pyright) | `pyright-langserver --stdio` | ✅ Stable (default) |
+| [pyright](https://github.com/microsoft/pyright) | `pyright-langserver --stdio` | ✅ Stable (**default** if `TYPEMUX_CC_BACKEND` is not set) |
 | [ty](https://github.com/astral-sh/ty) | `ty server` | 🧪 Experimental (verified) |
 | [pyrefly](https://github.com/facebook/pyrefly) | `pyrefly lsp` | 🧪 Experimental (verified) |
-
-Select with `--backend` flag or `TYPEMUX_CC_BACKEND` environment variable:
-
-```bash
-typemux-cc --backend pyright   # default
-typemux-cc --backend ty
-typemux-cc --backend pyrefly
-```
 
 ## Requirements
 
