@@ -75,7 +75,6 @@ typemux-cc manages a pool of LSP backends (one per `.venv`) and routes requests 
 
 ### Prerequisites
 
-- Rust 1.75 or later (for building)
 - One of the supported LSP backends available in PATH:
   - `pyright-langserver` (install via `npm install -g pyright` or `pip install pyright`)
   - `ty` (install via `pip install ty` or `uvx ty`)
@@ -149,6 +148,8 @@ After installation, verify in `~/.claude/settings.json`:
 ```
 
 ### Method B: Local Build (For Developers)
+
+> Requires Rust 1.75 or later.
 
 ```bash
 git clone https://github.com/K-dash/typemux-cc.git
