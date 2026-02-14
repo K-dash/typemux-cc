@@ -245,11 +245,9 @@ Backends are evicted only when the pool is full (LRU) or after idle timeout (TTL
 
 From the user's perspective: **Nothing visible happens. LSP just works.**
 
-### Cache Limitation (Important)
+### Environment Variables
 
-If a file was opened before `.venv` existed, the cached venv stays `None`.
-Create `.venv` later? You must reopen the file (or refresh the document cache)
-to trigger venv detection for that file.
+Each backend process is spawned with `VIRTUAL_ENV` and `PATH` set to point at the detected `.venv`. These are **only applied to the child backend process** — your shell environment and system PATH are never modified.
 
 ## Troubleshooting
 
@@ -279,8 +277,11 @@ rm -rf ~/.claude/plugins/cache/typemux-cc-marketplace/
 
 - Verify `.venv/pyvenv.cfg` exists
 - Verify file is within git repository
-- If `.venv` was created later, reopen the target file (or trigger an LSP request like hover)
-- Use `RUST_LOG=trace` for detailed logs
+- Check the log for `venv_path=None` — this means the document was cached before `.venv` existed
+- If `.venv` was created after the file was opened, **reopen the file** to trigger venv re-detection
+- Use `RUST_LOG=trace` for detailed venv search logs
+
+> **Why does this happen?** typemux-cc caches the venv for each document on first open. If `.venv` doesn't exist yet (e.g., created later by a hook), the cache stores `None`. Subsequent requests reuse the cached value without re-searching. Reopening the file clears the cache entry and triggers a fresh search.
 
 ## Known Limitations
 
@@ -290,6 +291,7 @@ rm -rf ~/.claude/plugins/cache/typemux-cc-marketplace/
 | macOS Intel unsupported | Prebuilt is arm64 only | Use Apple Silicon |
 | Fixed venv name | Only detects `.venv` (`venv`, `env` not supported) | Rename to `.venv` |
 | Symlinks | May fail to detect `pyvenv.cfg` if `.venv` is a symlink | Use actual directory |
+| Late `.venv` creation | venv cached as `None` if `.venv` didn't exist when file was opened | Reopen the file after creating `.venv` |
 
 ## Architecture
 
