@@ -23,8 +23,11 @@
 
 ---
 
-Claude Code cannot handle language server restarts or reconnections, so reflecting `.venv` creation or switching previously required restarting Claude Code itself.
-typemux-cc breaks through this limitation, reflecting virtual environment changes **within your running session**.
+Claude Code's official pyright plugin spawns a single LSP backend at startup and holds onto it. If `.venv` doesn't exist yet — or you create a new one later — it never picks it up. You have to restart Claude Code.
+
+This is especially painful with **git worktrees**, now common in AI-assisted development: you spin up a fresh worktree, create `.venv`, and then must restart Claude Code just to get type-checking.
+
+typemux-cc is a Python LSP proxy that fixes this — `.venv` changes are reflected **within your running session**, no restarts required.
 
 ## Quickstart
 
@@ -46,11 +49,9 @@ npm install -g pyright
 
 ## Problems Solved
 
-- **🔄 venv switching in monorepos** - Python type-checkers assume a single venv, causing incorrect type checking and completions when moving between projects
-- **⚡ Dynamic .venv creation in worktrees** - When `.venv` is created later via hooks, etc., Claude Code restart was previously required
-- **🔀 Transparent switch on venv change** - LSP requests (hover, definition, etc.) are sent to the new backend after a switch, so the current request does not surface "Request cancelled"
-
-typemux-cc manages a pool of LSP backends (one per `.venv`) and routes requests to the correct one. Claude Code always communicates with the proxy, so it doesn't notice backend switches.
+- **⚡ Late `.venv` creation (worktrees, hooks)** — Spin up a git worktree, create `.venv` later, and typemux-cc picks it up on the next file open. No Claude Code restart needed.
+- **🔄 Multi-project venv switching (monorepos)** — typemux-cc keeps a per-`.venv` backend pool and routes requests to the correct one. Switching between projects is instant.
+- **🔀 Multi-backend support** — Not locked into pyright. Choose between pyright, ty, or pyrefly — switch via a single env var.
 
 > **Why LSP over text search?** In monorepos, grep returns false positives from same-named types across projects. LSP resolves references at the type-system level. See [real-world benchmarks](./docs/why-lsp.md).
 
@@ -216,6 +217,27 @@ TYPEMUX_CC_LOG_FILE=/tmp/typemux-cc.log ./target/release/typemux-cc
 For config file method and details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Typical Use Case
+
+### Git Worktree (AI-Assisted Development)
+
+A common workflow with AI coding agents:
+
+```
+my-project/                    # main worktree
+├── .venv/
+└── src/main.py
+
+my-project-worktree/           # new worktree (no .venv yet)
+└── src/main.py
+```
+
+| Step | What Happens |
+|------|-------------|
+| 1. Create worktree | `git worktree add ../my-project-worktree feat/new-feature` — no `.venv` exists |
+| 2. Create `.venv` | `cd ../my-project-worktree && uv sync` — `.venv` now exists |
+| 3. Open a file | Claude Code opens `my-project-worktree/src/main.py` → typemux-cc detects the new `.venv` and spawns a backend automatically |
+
+With the official plugin, step 3 would require restarting Claude Code. With typemux-cc, it just works.
 
 ### Monorepo Structure
 
