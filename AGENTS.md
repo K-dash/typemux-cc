@@ -96,6 +96,7 @@ For small, well-scoped changes (single-file fixes, typo corrections, simple bug 
 - Rust 2021 edition
 - Use `cargo fmt` for formatting
 - All clippy warnings treated as errors (`-D warnings`)
+- **Prefer early returns over deep nesting** — Use guard clauses (`let x = match ... { Err => return }`) to keep the happy path flat. Avoid nesting `match`/`if let` more than 2 levels deep.
 
 ## Testing
 

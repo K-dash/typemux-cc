@@ -67,7 +67,7 @@ The proxy sits between Claude Code and multiple LSP backends (pyright, ty, or py
 1. **Message routing**: Route JSON-RPC messages to the correct backend based on document venv
 2. **venv detection**: Search for `.venv` on:
    - `textDocument/didOpen` (always)
-   - LSP requests: hover, definition, references, documentSymbol, typeDefinition, implementation
+   - Any URI-bearing LSP request on cache miss (fallback to full venv resolution)
    - NOTE: Cached documents reuse the last known venv and are not re-searched
 3. **Multi-backend pool**: Manage concurrent backend processes (one per venv, up to `max_backends`)
 4. **State restoration**: Resend open documents when spawning a new backend
@@ -198,6 +198,10 @@ Strict Venv Mode implements this philosophy.
 | File opened, `.venv` NOT found | Return error (`-32603: .venv not found`) |
 | Pool full, new backend needed | Evict LRU backend, then spawn new one |
 | `initialize` (no fallback .venv) | Return success with `capabilities: {}` (prevents Claude Code error state) |
+| URI-bearing request, cache miss | Attempt full venv resolution via `ensure_backend_in_pool` |
+| URI-bearing request, non-file URI | Return error (cannot resolve venv for non-file scheme) |
+| URI-less request (e.g., `workspace/symbol`), single backend | Forward to sole backend (no cross-contamination risk) |
+| URI-less request, multiple backends | Return error (cannot determine target venv) |
 
 ### Cache Limitation (Important)
 

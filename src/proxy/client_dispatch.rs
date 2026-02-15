@@ -266,10 +266,65 @@ impl super::LspProxy {
             }
         }
 
-        // Determine target backend if not yet determined
+        // Determine target backend if not yet determined.
+        // For URI-bearing requests, try cache first, then full venv resolution on miss.
         if target_venv.is_none() {
             if let Some(url) = Self::extract_text_document_uri(msg) {
                 target_venv = self.venv_for_uri(&url);
+
+                if target_venv.is_none() {
+                    let file_path = match url.to_file_path() {
+                        Ok(p) => p,
+                        Err(_) => {
+                            // Non-file URI (e.g., untitled:, vscode-notebook-cell:)
+                            tracing::warn!(
+                                method = ?msg.method_name(),
+                                uri = %url,
+                                "Cannot resolve venv for non-file URI"
+                            );
+                            let error_response = RpcMessage::error_response(
+                                msg,
+                                &format!(
+                                    "lsp-proxy: cannot resolve venv for non-file URI: {}",
+                                    url
+                                ),
+                            );
+                            client_writer.write_message(&error_response).await?;
+                            return Ok(());
+                        }
+                    };
+
+                    match self
+                        .ensure_backend_in_pool(&url, &file_path, client_writer)
+                        .await
+                    {
+                        Ok(Some(venv)) => {
+                            target_venv = Some(venv);
+                        }
+                        Ok(None) => {
+                            tracing::warn!(
+                                method = ?msg.method_name(),
+                                uri = %url,
+                                "No venv found for URI-bearing request"
+                            );
+                            let error_response = RpcMessage::error_response(
+                                msg,
+                                "lsp-proxy: .venv not found (strict mode). Create .venv or run hooks.",
+                            );
+                            client_writer.write_message(&error_response).await?;
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            tracing::error!(error = ?e, "Failed to ensure backend in pool");
+                            let error_response = RpcMessage::error_response(
+                                msg,
+                                &format!("lsp-proxy: backend error: {}", e),
+                            );
+                            client_writer.write_message(&error_response).await?;
+                            return Ok(());
+                        }
+                    }
+                }
             }
         }
 
@@ -324,36 +379,61 @@ impl super::LspProxy {
                 client_writer.write_message(&error_response).await?;
             }
         } else {
-            // No target backend — check if any backend exists
+            // No target venv resolved (URI-less request)
             if self.state.pool.is_empty() {
                 let error_message =
                     "lsp-proxy: .venv not found (strict mode). Create .venv or run hooks.";
                 let error_response = RpcMessage::error_response(msg, error_message);
                 client_writer.write_message(&error_response).await?;
+            } else if self.state.pool.len() == 1 {
+                // Single backend: no cross-contamination possible, forward unconditionally
+                self.forward_to_first_backend(msg).await?;
             } else {
-                // Forward to the first available backend (best effort for non-textDocument requests)
-                let first_venv = self.state.pool.first_key().cloned();
-                if let Some(venv_path) = first_venv {
-                    if let Some(inst) = self.state.pool.get_mut(&venv_path) {
-                        inst.last_used = Instant::now();
-                        let session = inst.session;
-                        if let Some(id) = &msg.id {
-                            self.state.pending_requests.insert(
-                                id.clone(),
-                                crate::state::PendingRequest {
-                                    backend_session: session,
-                                    venv_path: venv_path.clone(),
-                                },
-                            );
-                        }
-                        if let Err(e) = inst.writer.write_message(msg).await {
-                            tracing::error!(venv = %venv_path.display(), error = ?e, "Failed to send request to backend");
-                        }
-                    }
-                }
+                // Multiple backends: cannot determine target for URI-less requests
+                let method_name = msg.method_name().unwrap_or("");
+                tracing::warn!(
+                    method = method_name,
+                    pool_size = self.state.pool.len(),
+                    "Rejecting URI-less request: cannot determine target venv (multiple backends active)"
+                );
+                let error_response = RpcMessage::error_response(
+                    msg,
+                    &format!(
+                        "lsp-proxy: cannot route '{}' without a document URI (multiple backends active)",
+                        method_name
+                    ),
+                );
+                client_writer.write_message(&error_response).await?;
             }
         }
 
+        Ok(())
+    }
+
+    /// Forward a request to the first available backend in the pool.
+    ///
+    /// Used when no specific target venv is resolved but forwarding is safe
+    /// (e.g., single-backend pool where no cross-contamination is possible).
+    async fn forward_to_first_backend(&mut self, msg: &RpcMessage) -> Result<(), ProxyError> {
+        let first_venv = self.state.pool.first_key().cloned();
+        if let Some(venv_path) = first_venv {
+            if let Some(inst) = self.state.pool.get_mut(&venv_path) {
+                inst.last_used = Instant::now();
+                let session = inst.session;
+                if let Some(id) = &msg.id {
+                    self.state.pending_requests.insert(
+                        id.clone(),
+                        crate::state::PendingRequest {
+                            backend_session: session,
+                            venv_path: venv_path.clone(),
+                        },
+                    );
+                }
+                if let Err(e) = inst.writer.write_message(msg).await {
+                    tracing::error!(venv = %venv_path.display(), error = ?e, "Failed to send request to backend");
+                }
+            }
+        }
         Ok(())
     }
 
