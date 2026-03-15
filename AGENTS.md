@@ -2,27 +2,15 @@
 
 ## Landing the Plane (Session Completion)
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, complete the steps below.
 
-**MANDATORY WORKFLOW:**
+**WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-4. **Clean up** - Clear stashes, prune remote branches
-5. **Verify** - All changes committed AND pushed
-6. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+2. **Run quality gates** (if code changed) - `make all`
+3. **Commit changes** - Conventional commits on feature branch
+4. **Ask user about push** - Confirm before pushing to remote
+5. **Hand off** - Provide context for next session
 
 ---
 
@@ -73,12 +61,18 @@ Before committing, verify:
 
 ## Instructions for AI Agents
 
+- **All code comments, commit messages, PR titles, PR descriptions, and review comments MUST be written in English.** No exceptions.
 - Before committing, ALWAYS re-read this Workflow section
 - When user says "commit", first check current branch and create feature branch if on main
 - When user-facing behavior changes, proactively update README.md before committing
-- **All code comments, commit messages, PR titles, PR descriptions, and review comments MUST be written in English**
 - **No implicit fallbacks** — Never add silent fallback logic that masks errors. Let it fail loudly so unintended behavior is caught early. An explicit error is always better than a silent wrong result.
 - **No backward compatibility** — Do not preserve backward compatibility unless the user explicitly requests it. Breaking changes are the default; do not add compatibility shims, re-exports, or deprecation wrappers.
+
+### Rust Skills
+
+- When investigating or fixing Rust code, prefer rust-skills skills (m01–m15, domain-*, etc.)
+- For ownership/borrow/lifetime errors, load the corresponding m0x skill
+- For clippy errors or code review, load the relevant skill (e.g., coding-guidelines, m15-anti-pattern)
 
 ### Plan-First Rule
 
@@ -112,24 +106,5 @@ See @ARCHITECTURE.md for source code structure.
 
 ## Known Mistakes & Lessons Learned
 
-Record AI-generated mistakes and the rules that prevent them from recurring. Update this section after every code review where the AI got something wrong. This knowledge compounds over time.
+<!-- Reverse-chronological. Format: ### YYYY-MM-DD: Description / What happened / Root cause / Rule -->
 
-<!-- Add entries in reverse-chronological order (newest first) -->
-<!-- Format: ### YYYY-MM-DD: Short description -->
-<!-- - **What happened**: ... -->
-<!-- - **Root cause**: ... -->
-<!-- - **Rule**: The constraint to prevent recurrence -->
-
-## Architecture Decisions
-
-Key design choices and their rationale. See @ARCHITECTURE.md for full details.
-
-### Strict Venv Mode
-- **Context**: Running LSP with wrong `.venv` gives silently wrong results.
-- **Decision**: Disable backend entirely when `.venv` is not found, returning explicit errors.
-- **Rationale**: "A silently lying LSP is the worst." Explicit errors are healthier than false information.
-
-### Multi-backend Pool
-- **Context**: Monorepo environments have multiple projects with different `.venv` paths.
-- **Decision**: Pool of LSP backends, one per `.venv`, with automatic routing.
-- **Trade-off**: Higher memory usage vs. instant switching between projects.
