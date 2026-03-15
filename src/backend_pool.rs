@@ -83,14 +83,6 @@ impl BackendInstance {
         }
     }
 
-    /// Get next request ID for this backend (used for shutdown messages)
-    #[allow(dead_code)]
-    pub fn next_id(&mut self) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
-    }
-
     /// Check if this backend is still warming up
     pub fn is_warming(&self) -> bool {
         self.warmup_state == WarmupState::Warming
