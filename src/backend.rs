@@ -125,7 +125,7 @@ impl LspBackend {
         self.writer
             .write_message(message)
             .await
-            .map_err(|e| BackendError::SpawnFailed(std::io::Error::other(e)))?;
+            .map_err(BackendError::Communication)?;
         Ok(())
     }
 
@@ -134,7 +134,7 @@ impl LspBackend {
         self.reader
             .read_message()
             .await
-            .map_err(|e| BackendError::SpawnFailed(std::io::Error::other(e)))
+            .map_err(BackendError::Communication)
     }
 
     /// Split backend into reader, writer, and child process.
@@ -256,9 +256,7 @@ impl LspBackend {
         // Send SIGTERM (use start_kill since kill may not complete async)
         if let Err(e) = self.child.start_kill() {
             tracing::error!(error = ?e, "Failed to kill backend");
-            return Err(BackendError::SpawnFailed(std::io::Error::other(
-                "Failed to kill backend",
-            )));
+            return Err(BackendError::SpawnFailed(e));
         }
 
         // Wait and confirm termination (with timeout)
