@@ -3,7 +3,6 @@ use crate::framing::LspFrameWriter;
 use crate::message::RpcMessage;
 use crate::venv;
 use std::path::PathBuf;
-use tokio::time::Instant;
 
 impl super::LspProxy {
     /// Extract textDocument.uri from LSP request params
@@ -108,16 +107,7 @@ impl super::LspProxy {
         }
 
         // Backend exists in pool — forward didOpen
-        if let Some(inst) = self.state.pool.get_mut(venv_path) {
-            inst.last_used = Instant::now();
-            if let Err(e) = inst.writer.write_message(msg).await {
-                tracing::warn!(
-                    venv = %venv_path.display(),
-                    error = ?e,
-                    "Failed to forward didOpen to backend"
-                );
-            }
-        }
+        self.forward_to_backend(venv_path, msg).await?;
 
         Ok(())
     }
