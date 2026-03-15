@@ -7,14 +7,12 @@ const CONTENT_LENGTH: &str = "Content-Length: ";
 /// LSP frame reader
 pub struct LspFrameReader<R> {
     reader: BufReader<R>,
-    debug: bool,
 }
 
 impl<R: AsyncRead + Unpin> LspFrameReader<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader: BufReader::new(reader),
-            debug: false,
         }
     }
 
@@ -26,11 +24,6 @@ impl<R: AsyncRead + Unpin> LspFrameReader<R> {
         // 2. Read content section
         let mut content = vec![0u8; content_length];
         self.reader.read_exact(&mut content).await?;
-
-        // Debug output
-        if self.debug {
-            eprintln!("[DEBUG RX] {}", String::from_utf8_lossy(&content));
-        }
 
         // 3. Parse as JSON
         let message: RpcMessage = serde_json::from_slice(&content)?;
@@ -77,25 +70,16 @@ impl<R: AsyncRead + Unpin> LspFrameReader<R> {
 /// LSP frame writer
 pub struct LspFrameWriter<W> {
     writer: W,
-    debug: bool,
 }
 
 impl<W: AsyncWrite + Unpin> LspFrameWriter<W> {
     pub fn new(writer: W) -> Self {
-        Self {
-            writer,
-            debug: false,
-        }
+        Self { writer }
     }
 
     /// Write LSP message
     pub async fn write_message(&mut self, message: &RpcMessage) -> Result<(), FramingError> {
         let content = serde_json::to_vec(message)?;
-
-        // Debug output
-        if self.debug {
-            eprintln!("[DEBUG TX] {}", String::from_utf8_lossy(&content));
-        }
 
         let header = format!("Content-Length: {}\r\n\r\n", content.len());
 
