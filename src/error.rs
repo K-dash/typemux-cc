@@ -26,6 +26,9 @@ pub enum BackendError {
     #[error("Failed to spawn backend: {0}")]
     SpawnFailed(#[from] std::io::Error),
 
+    #[error("Backend communication error: {0}")]
+    Communication(#[from] FramingError),
+
     #[error("Initialize timeout after {0}s")]
     InitializeTimeout(u64),
 

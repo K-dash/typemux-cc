@@ -290,7 +290,7 @@ pub fn spawn_reader_task(
             let result = reader
                 .read_message()
                 .await
-                .map_err(|e| BackendError::SpawnFailed(std::io::Error::other(e)));
+                .map_err(BackendError::Communication);
 
             let is_err = result.is_err();
 
