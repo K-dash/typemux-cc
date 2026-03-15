@@ -48,32 +48,16 @@ impl super::LspProxy {
                 }
                 Err(e) => {
                     tracing::error!(error = ?e, "Failed to initialize fallback backend, returning minimal response");
-                    let init_response = RpcMessage {
-                        jsonrpc: "2.0".to_string(),
-                        id: msg.id.clone(),
-                        method: None,
-                        params: None,
-                        result: Some(serde_json::json!({
-                            "capabilities": {}
-                        })),
-                        error: None,
-                    };
+                    let init_response =
+                        RpcMessage::success_response(msg, serde_json::json!({"capabilities": {}}));
                     client_writer.write_message(&init_response).await?;
                 }
             }
         } else {
             // No fallback backend — return minimal capabilities
             tracing::warn!("No fallback backend: returning minimal initialize response");
-            let init_response = RpcMessage {
-                jsonrpc: "2.0".to_string(),
-                id: msg.id.clone(),
-                method: None,
-                params: None,
-                result: Some(serde_json::json!({
-                    "capabilities": {}
-                })),
-                error: None,
-            };
+            let init_response =
+                RpcMessage::success_response(msg, serde_json::json!({"capabilities": {}}));
             client_writer.write_message(&init_response).await?;
         }
 
@@ -86,14 +70,7 @@ impl super::LspProxy {
     pub(crate) async fn dispatch_initialized(&mut self) -> Result<(), ProxyError> {
         tracing::info!("Client initialized");
         // Forward to all backends in the pool
-        let initialized_msg = RpcMessage {
-            jsonrpc: "2.0".to_string(),
-            id: None,
-            method: Some("initialized".to_string()),
-            params: Some(serde_json::json!({})),
-            result: None,
-            error: None,
-        };
+        let initialized_msg = RpcMessage::notification("initialized", Some(serde_json::json!({})));
         // Collect keys to avoid borrow issues
         let venvs: Vec<PathBuf> = self.state.pool.backends_keys();
         for venv in &venvs {
@@ -127,14 +104,7 @@ impl super::LspProxy {
         }
 
         // Send shutdown response to client
-        let shutdown_response = RpcMessage {
-            jsonrpc: "2.0".to_string(),
-            id: msg.id.clone(),
-            method: None,
-            params: None,
-            result: Some(serde_json::Value::Null),
-            error: None,
-        };
+        let shutdown_response = RpcMessage::success_response(msg, serde_json::Value::Null);
         client_writer.write_message(&shutdown_response).await?;
         tracing::info!("Sent shutdown response to client");
 

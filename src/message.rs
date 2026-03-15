@@ -53,7 +53,45 @@ impl RpcMessage {
         self.method.as_deref()
     }
 
-    /// Create an error response for a given request
+    /// Create a JSON-RPC notification (no id, no response expected).
+    /// Pass `None` for params-less notifications (field omitted on the wire).
+    pub fn notification(method: &str, params: Option<Value>) -> RpcMessage {
+        RpcMessage {
+            jsonrpc: "2.0".to_string(),
+            id: None,
+            method: Some(method.to_string()),
+            params,
+            result: None,
+            error: None,
+        }
+    }
+
+    /// Create a JSON-RPC request (has id, expects a response).
+    /// Pass `None` for params-less requests (field omitted on the wire).
+    pub fn request(id: RpcId, method: &str, params: Option<Value>) -> RpcMessage {
+        RpcMessage {
+            jsonrpc: "2.0".to_string(),
+            id: Some(id),
+            method: Some(method.to_string()),
+            params,
+            result: None,
+            error: None,
+        }
+    }
+
+    /// Create a success response for a given request.
+    pub fn success_response(request: &RpcMessage, result: Value) -> RpcMessage {
+        RpcMessage {
+            jsonrpc: "2.0".to_string(),
+            id: request.id.clone(),
+            method: None,
+            params: None,
+            result: Some(result),
+            error: None,
+        }
+    }
+
+    /// Create an error response for a given request.
     pub fn error_response(request: &RpcMessage, message: &str) -> RpcMessage {
         RpcMessage {
             jsonrpc: "2.0".to_string(),
@@ -63,6 +101,22 @@ impl RpcMessage {
             result: None,
             error: Some(RpcError {
                 code: -32603,
+                message: message.to_string(),
+                data: None,
+            }),
+        }
+    }
+
+    /// Create a cancellation error response with a specific id.
+    pub fn cancelled_response(id: RpcId, message: &str) -> RpcMessage {
+        RpcMessage {
+            jsonrpc: "2.0".to_string(),
+            id: Some(id),
+            method: None,
+            params: None,
+            result: None,
+            error: Some(RpcError {
+                code: -32800,
                 message: message.to_string(),
                 data: None,
             }),

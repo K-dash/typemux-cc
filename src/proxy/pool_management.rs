@@ -228,8 +228,6 @@ impl super::LspProxy {
         venv_path: &PathBuf,
         session: u64,
     ) -> Result<(), ProxyError> {
-        const REQUEST_CANCELLED: i64 = -32800;
-
         let to_cancel: Vec<RpcId> = self
             .state
             .pending_requests
@@ -240,18 +238,10 @@ impl super::LspProxy {
 
         for id in to_cancel {
             self.state.pending_requests.remove(&id);
-            let msg = RpcMessage {
-                jsonrpc: "2.0".to_string(),
-                id: Some(id.clone()),
-                method: None,
-                params: None,
-                result: None,
-                error: Some(crate::message::RpcError {
-                    code: REQUEST_CANCELLED,
-                    message: "Request cancelled due to backend eviction".to_string(),
-                    data: None,
-                }),
-            };
+            let msg = RpcMessage::cancelled_response(
+                id.clone(),
+                "Request cancelled due to backend eviction",
+            );
             client_writer.write_message(&msg).await?;
             tracing::info!(id = ?id, venv = %venv_path.display(), session = session, "Cancelled pending request");
         }

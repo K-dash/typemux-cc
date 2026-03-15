@@ -165,14 +165,7 @@ impl LspBackend {
         );
 
         // Send shutdown request
-        let shutdown_msg = RpcMessage {
-            jsonrpc: "2.0".to_string(),
-            id: Some(RpcId::Number(shutdown_id as i64)),
-            method: Some("shutdown".to_string()),
-            params: None,
-            result: None,
-            error: None,
-        };
+        let shutdown_msg = RpcMessage::request(RpcId::Number(shutdown_id as i64), "shutdown", None);
 
         if let Err(e) = self.send_message(&shutdown_msg).await {
             tracing::warn!(error = ?e, "Failed to send shutdown request, will kill directly");
@@ -220,14 +213,7 @@ impl LspBackend {
         }
 
         // Send exit notification
-        let exit_msg = RpcMessage {
-            jsonrpc: "2.0".to_string(),
-            id: None,
-            method: Some("exit".to_string()),
-            params: None,
-            result: None,
-            error: None,
-        };
+        let exit_msg = RpcMessage::notification("exit", None);
 
         if let Err(e) = self.send_message(&exit_msg).await {
             tracing::warn!(error = ?e, "Failed to send exit notification");
@@ -314,14 +300,7 @@ pub fn shutdown_fire_and_forget(
         tracing::info!(venv = %venv_display, "Starting fire-and-forget shutdown");
 
         // 1. Send shutdown request
-        let shutdown_msg = RpcMessage {
-            jsonrpc: "2.0".to_string(),
-            id: Some(RpcId::Number(next_id as i64)),
-            method: Some("shutdown".to_string()),
-            params: None,
-            result: None,
-            error: None,
-        };
+        let shutdown_msg = RpcMessage::request(RpcId::Number(next_id as i64), "shutdown", None);
 
         if let Err(e) = writer.write_message(&shutdown_msg).await {
             tracing::warn!(venv = %venv_display, error = ?e, "Failed to send shutdown, killing directly");
@@ -333,14 +312,7 @@ pub fn shutdown_fire_and_forget(
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // 3. Send exit notification
-        let exit_msg = RpcMessage {
-            jsonrpc: "2.0".to_string(),
-            id: None,
-            method: Some("exit".to_string()),
-            params: None,
-            result: None,
-            error: None,
-        };
+        let exit_msg = RpcMessage::notification("exit", None);
 
         if let Err(e) = writer.write_message(&exit_msg).await {
             tracing::warn!(venv = %venv_display, error = ?e, "Failed to send exit notification");

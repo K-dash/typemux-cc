@@ -11,11 +11,9 @@ impl super::LspProxy {
         error: &ProxyError,
         client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
     ) {
-        let msg = RpcMessage {
-            jsonrpc: "2.0".to_string(),
-            id: None,
-            method: Some("window/showMessage".to_string()),
-            params: Some(serde_json::json!({
+        let msg = RpcMessage::notification(
+            "window/showMessage",
+            Some(serde_json::json!({
                 "type": 1,
                 "message": format!(
                     "typemux-cc: Failed to start LSP backend for {}: {}",
@@ -23,9 +21,7 @@ impl super::LspProxy {
                     error
                 )
             })),
-            result: None,
-            error: None,
-        };
+        );
 
         if let Err(e) = client_writer.write_message(&msg).await {
             tracing::warn!(
@@ -75,17 +71,13 @@ impl super::LspProxy {
         for uri in uris {
             tracing::trace!(uri = %uri, "Clearing diagnostics");
 
-            let clear_msg = RpcMessage {
-                jsonrpc: "2.0".to_string(),
-                id: None,
-                method: Some("textDocument/publishDiagnostics".to_string()),
-                params: Some(serde_json::json!({
+            let clear_msg = RpcMessage::notification(
+                "textDocument/publishDiagnostics",
+                Some(serde_json::json!({
                     "uri": uri.to_string(),
                     "diagnostics": []
                 })),
-                result: None,
-                error: None,
-            };
+            );
 
             match client_writer.write_message(&clear_msg).await {
                 Ok(_) => ok += 1,
