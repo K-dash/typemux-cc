@@ -1,4 +1,4 @@
-use crate::backend_pool::shutdown_backend_instance;
+use crate::backend_pool::{shutdown_backend_instance, BackendInstance};
 use crate::error::ProxyError;
 use crate::framing::LspFrameWriter;
 use crate::message::{RpcId, RpcMessage};
@@ -68,24 +68,14 @@ impl super::LspProxy {
 
             if let Some(instance) = self.state.pool.remove(&venv_to_evict) {
                 let evict_session = instance.session;
-
-                // Cancel pending requests for this backend
-                self.cancel_pending_requests_for_backend(
-                    client_writer,
+                self.cleanup_evicted_backend(
+                    instance,
                     &venv_to_evict,
                     evict_session,
+                    client_writer,
+                    true,
                 )
                 .await?;
-
-                // Clean up pending_backend_requests for this backend
-                self.clean_pending_backend_requests(&venv_to_evict, evict_session);
-
-                // Clear diagnostics for documents under this venv
-                self.clear_diagnostics_for_venv(&venv_to_evict, client_writer)
-                    .await;
-
-                // Shutdown
-                shutdown_backend_instance(instance);
             }
         }
 
@@ -149,16 +139,14 @@ impl super::LspProxy {
 
             if let Some(instance) = self.state.pool.remove(&venv_path) {
                 let evict_session = instance.session;
-
-                self.cancel_pending_requests_for_backend(client_writer, &venv_path, evict_session)
-                    .await?;
-
-                self.clean_pending_backend_requests(&venv_path, evict_session);
-
-                self.clear_diagnostics_for_venv(&venv_path, client_writer)
-                    .await;
-
-                shutdown_backend_instance(instance);
+                self.cleanup_evicted_backend(
+                    instance,
+                    &venv_path,
+                    evict_session,
+                    client_writer,
+                    true,
+                )
+                .await?;
             }
         }
 
@@ -195,17 +183,10 @@ impl super::LspProxy {
         );
 
         if let Some(instance) = self.state.pool.remove(venv_path) {
-            // Cancel pending requests
-            self.cancel_pending_requests_for_backend(client_writer, venv_path, session)
+            // do_shutdown=false: process is already dead, just abort reader + clean up
+            self.cleanup_evicted_backend(instance, venv_path, session, client_writer, false)
                 .await?;
 
-            // Clean up pending_backend_requests
-            self.clean_pending_backend_requests(venv_path, session);
-
-            // Abort reader task (it already exited with error, but be safe)
-            instance.reader_task.abort();
-
-            // Don't attempt graceful shutdown — process is already dead
             tracing::info!(
                 venv = %venv_path.display(),
                 session = session,
@@ -213,6 +194,30 @@ impl super::LspProxy {
             );
         }
 
+        Ok(())
+    }
+
+    /// Clean up after removing a backend instance from the pool.
+    /// Cancels pending requests, clears diagnostics, and shuts down the process.
+    /// Set `do_shutdown` to false for crashed backends (process already dead).
+    async fn cleanup_evicted_backend(
+        &mut self,
+        instance: BackendInstance,
+        venv_path: &PathBuf,
+        session: u64,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+        do_shutdown: bool,
+    ) -> Result<(), ProxyError> {
+        self.cancel_pending_requests_for_backend(client_writer, venv_path, session)
+            .await?;
+        self.clean_pending_backend_requests(venv_path, session);
+        self.clear_diagnostics_for_venv(venv_path, client_writer)
+            .await;
+        if do_shutdown {
+            shutdown_backend_instance(instance);
+        } else {
+            instance.reader_task.abort();
+        }
         Ok(())
     }
 

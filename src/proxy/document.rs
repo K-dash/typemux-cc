@@ -93,24 +93,13 @@ impl super::LspProxy {
         };
 
         if !self.state.pool.contains(venv_path) {
-            // Need to create backend
-            if self.state.pool.is_full() {
-                self.evict_lru_backend(client_writer).await?;
-            }
-
-            match self.create_backend_instance(venv_path, client_writer).await {
-                Ok(instance) => {
-                    self.state.pool.insert(venv_path.clone(), instance);
-                    // didOpen was already restored during create_backend_instance
-                    // (restore_documents_to_backend sends didOpen for matching docs)
-                    return Ok(());
-                }
+            match self
+                .ensure_backend_in_pool(&url, &file_path, client_writer)
+                .await
+            {
+                Ok(Some(_)) => return Ok(()), // didOpen restored during backend creation
+                Ok(None) => return Ok(()),
                 Err(e) => {
-                    tracing::error!(
-                        venv = %venv_path.display(),
-                        error = ?e,
-                        "Failed to create backend for didOpen"
-                    );
                     self.notify_backend_error(venv_path, &e, client_writer)
                         .await;
                     return Ok(());

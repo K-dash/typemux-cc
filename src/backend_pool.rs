@@ -1,4 +1,4 @@
-use crate::backend::shutdown_fire_and_forget;
+use crate::backend::{shutdown_fire_and_forget, BackendParts};
 use crate::error::BackendError;
 use crate::framing::{LspFrameReader, LspFrameWriter};
 use crate::message::{RpcId, RpcMessage};
@@ -55,6 +55,34 @@ pub struct BackendInstance {
 }
 
 impl BackendInstance {
+    /// Create a `BackendInstance` from a split backend, spawning the reader task
+    /// and computing the warmup state. Does NOT insert into the pool.
+    pub fn from_parts(
+        parts: BackendParts,
+        venv_path: PathBuf,
+        session: u64,
+        msg_sender: mpsc::Sender<BackendMessage>,
+    ) -> Self {
+        let reader_task = spawn_reader_task(parts.reader, msg_sender, venv_path.clone(), session);
+        let timeout = warmup_timeout();
+        Self {
+            writer: parts.writer,
+            child: parts.child,
+            venv_path,
+            session,
+            last_used: Instant::now(),
+            reader_task,
+            next_id: parts.next_id,
+            warmup_state: if timeout.is_zero() {
+                WarmupState::Ready
+            } else {
+                WarmupState::Warming
+            },
+            warmup_deadline: Instant::now() + timeout,
+            warmup_queue: Vec::new(),
+        }
+    }
+
     /// Get next request ID for this backend (used for shutdown messages)
     #[allow(dead_code)]
     pub fn next_id(&mut self) -> u64 {

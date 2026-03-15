@@ -1,7 +1,5 @@
 use crate::backend::LspBackend;
-use crate::backend_pool::{
-    shutdown_backend_instance, spawn_reader_task, warmup_timeout, BackendInstance, WarmupState,
-};
+use crate::backend_pool::{shutdown_backend_instance, BackendInstance};
 use crate::error::ProxyError;
 use crate::framing::LspFrameWriter;
 use crate::message::{RpcId, RpcMessage};
@@ -41,25 +39,7 @@ impl super::LspProxy {
                     let session = self.state.pool.next_session_id();
                     let parts = backend.into_split();
                     let tx = self.state.pool.msg_sender();
-                    let reader_task = spawn_reader_task(parts.reader, tx, venv.clone(), session);
-
-                    let timeout = warmup_timeout();
-                    let instance = BackendInstance {
-                        writer: parts.writer,
-                        child: parts.child,
-                        venv_path: venv.clone(),
-                        session,
-                        last_used: Instant::now(),
-                        reader_task,
-                        next_id: parts.next_id,
-                        warmup_state: if timeout.is_zero() {
-                            WarmupState::Ready
-                        } else {
-                            WarmupState::Warming
-                        },
-                        warmup_deadline: Instant::now() + timeout,
-                        warmup_queue: Vec::new(),
-                    };
+                    let instance = BackendInstance::from_parts(parts, venv.clone(), session, tx);
                     self.state.pool.insert(venv, instance);
 
                     // Send initialize response to client
