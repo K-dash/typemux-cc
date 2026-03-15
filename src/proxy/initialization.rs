@@ -17,14 +17,7 @@ async fn perform_initialize_handshake(
     init_params: Value,
     venv: &Path,
 ) -> Result<RpcMessage, ProxyError> {
-    let init_msg = RpcMessage {
-        jsonrpc: "2.0".to_string(),
-        id: Some(RpcId::Number(1)),
-        method: Some("initialize".to_string()),
-        params: Some(init_params),
-        result: None,
-        error: None,
-    };
+    let init_msg = RpcMessage::request(RpcId::Number(1), "initialize", init_params);
 
     tracing::info!(venv = %venv.display(), "Sending initialize to backend");
     backend.send_message(&init_msg).await?;
@@ -86,14 +79,7 @@ async fn perform_initialize_handshake(
     };
 
     // Send initialized notification
-    let initialized_msg = RpcMessage {
-        jsonrpc: "2.0".to_string(),
-        id: None,
-        method: Some("initialized".to_string()),
-        params: Some(serde_json::json!({})),
-        result: None,
-        error: None,
-    };
+    let initialized_msg = RpcMessage::notification("initialized", serde_json::json!({}));
 
     tracing::info!(venv = %venv.display(), "Sending initialized to backend");
     backend.send_message(&initialized_msg).await?;
@@ -201,21 +187,17 @@ impl super::LspProxy {
             let text = doc.text.clone();
             let text_len = text.len();
 
-            let didopen_msg = RpcMessage {
-                jsonrpc: "2.0".to_string(),
-                id: None,
-                method: Some("textDocument/didOpen".to_string()),
-                params: Some(serde_json::json!({
+            let didopen_msg = RpcMessage::notification(
+                "textDocument/didOpen",
+                serde_json::json!({
                     "textDocument": {
                         "uri": uri_str,
                         "languageId": language_id,
                         "version": version,
                         "text": text,
                     }
-                })),
-                result: None,
-                error: None,
-            };
+                }),
+            );
 
             match backend.send_message(&didopen_msg).await {
                 Ok(_) => {
