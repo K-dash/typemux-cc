@@ -1,11 +1,10 @@
 use crate::backend::LspBackend;
-use crate::backend_pool::{spawn_reader_task, warmup_timeout, BackendInstance, WarmupState};
+use crate::backend_pool::BackendInstance;
 use crate::error::ProxyError;
 use crate::framing::LspFrameWriter;
 use crate::message::{RpcId, RpcMessage};
 use serde_json::Value;
 use std::path::Path;
-use tokio::time::Instant;
 
 /// Perform the LSP initialize handshake with a backend:
 /// 1. Send `initialize` request with the given params
@@ -154,25 +153,12 @@ impl super::LspProxy {
         // 4. Split and create instance
         let parts = backend.into_split();
         let tx = self.state.pool.msg_sender();
-        let reader_task = spawn_reader_task(parts.reader, tx, venv.to_path_buf(), session);
-
-        let timeout = warmup_timeout();
-        Ok(BackendInstance {
-            writer: parts.writer,
-            child: parts.child,
-            venv_path: venv.to_path_buf(),
+        Ok(BackendInstance::from_parts(
+            parts,
+            venv.to_path_buf(),
             session,
-            last_used: Instant::now(),
-            reader_task,
-            next_id: parts.next_id,
-            warmup_state: if timeout.is_zero() {
-                WarmupState::Ready
-            } else {
-                WarmupState::Warming
-            },
-            warmup_deadline: Instant::now() + timeout,
-            warmup_queue: Vec::new(),
-        })
+            tx,
+        ))
     }
 
     /// Restore documents belonging to a venv to a backend
