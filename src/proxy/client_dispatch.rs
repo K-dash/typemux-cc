@@ -3,7 +3,8 @@ use crate::backend_pool::{shutdown_backend_instance, BackendInstance};
 use crate::error::ProxyError;
 use crate::framing::LspFrameWriter;
 use crate::message::{RpcId, RpcMessage};
-use std::path::PathBuf;
+use crate::state::PendingRequest;
+use std::path::{Path, PathBuf};
 use tokio::time::Instant;
 
 /// LSP methods that depend on the cross-file index and should be queued during warmup.
@@ -111,7 +112,7 @@ impl super::LspProxy {
         Ok(())
     }
 
-    /// Handle a client response (to a server→client request from backend).
+    /// Handle a client response (to a server->client request from backend).
     ///
     /// Returns `Ok(true)` if the message was handled (caller should `continue`),
     /// `Ok(false)` if it did not match a pending backend request (fall through).
@@ -280,47 +281,39 @@ impl super::LspProxy {
 
         // If we have a target, send to that backend
         if let Some(ref venv_path) = target_venv {
-            if let Some(inst) = self.state.pool.get_mut(venv_path) {
+            // Extract session and warmup state, then drop the mutable borrow
+            // so register_pending_request can borrow self again.
+            let backend_info = self.state.pool.get_mut(venv_path).map(|inst| {
                 inst.last_used = Instant::now();
                 let session = inst.session;
+                let should_queue = method
+                    .is_some_and(|m| inst.is_warming() && INDEX_DEPENDENT_METHODS.contains(&m));
+                (session, should_queue)
+            });
 
-                // Queue index-dependent requests during warmup
-                if let Some(method_name) = method {
-                    if inst.is_warming() && INDEX_DEPENDENT_METHODS.contains(&method_name) {
-                        // Register in pending requests (so cancel/crash handling works)
-                        if let Some(id) = &msg.id {
-                            self.state.pending_requests.insert(
-                                id.clone(),
-                                crate::state::PendingRequest {
-                                    backend_session: session,
-                                    venv_path: venv_path.clone(),
-                                },
-                            );
-                        }
-                        tracing::info!(
-                            method = method_name,
-                            id = ?msg.id,
-                            venv = %venv_path.display(),
-                            "Queueing index-dependent request during warmup"
-                        );
+            if let Some((session, should_queue)) = backend_info {
+                if should_queue {
+                    // Register in pending requests (so cancel/crash handling works)
+                    self.register_pending_request(msg, session, venv_path);
+                    tracing::info!(
+                        method = ?method,
+                        id = ?msg.id,
+                        venv = %venv_path.display(),
+                        "Queueing index-dependent request during warmup"
+                    );
+                    if let Some(inst) = self.state.pool.get_mut(venv_path) {
                         inst.warmup_queue.push(msg.clone());
-                        return Ok(());
                     }
+                    return Ok(());
                 }
 
                 // Register in pending requests
-                if let Some(id) = &msg.id {
-                    self.state.pending_requests.insert(
-                        id.clone(),
-                        crate::state::PendingRequest {
-                            backend_session: session,
-                            venv_path: venv_path.clone(),
-                        },
-                    );
-                }
+                self.register_pending_request(msg, session, venv_path);
 
-                if let Err(e) = inst.writer.write_message(msg).await {
-                    tracing::error!(venv = %venv_path.display(), error = ?e, "Failed to send request to backend");
+                if let Some(inst) = self.state.pool.get_mut(venv_path) {
+                    if let Err(e) = inst.writer.write_message(msg).await {
+                        tracing::error!(venv = %venv_path.display(), error = ?e, "Failed to send request to backend");
+                    }
                 }
             } else {
                 // Backend disappeared (race with crash handling)
@@ -360,6 +353,41 @@ impl super::LspProxy {
         Ok(())
     }
 
+    /// Register a pending request so that the response can be routed back
+    /// to the correct backend session.
+    fn register_pending_request(&mut self, msg: &RpcMessage, session: u64, venv_path: &Path) {
+        if let Some(id) = &msg.id {
+            self.state.pending_requests.insert(
+                id.clone(),
+                PendingRequest {
+                    backend_session: session,
+                    venv_path: venv_path.to_path_buf(),
+                },
+            );
+        }
+    }
+
+    /// Forward a message to the backend for the given venv, updating its
+    /// last-used timestamp. Logs a warning on write failure.
+    pub(crate) async fn forward_to_backend(
+        &mut self,
+        venv_path: &Path,
+        msg: &RpcMessage,
+    ) -> Result<(), ProxyError> {
+        let key = venv_path.to_path_buf();
+        if let Some(inst) = self.state.pool.get_mut(&key) {
+            inst.last_used = Instant::now();
+            if let Err(e) = inst.writer.write_message(msg).await {
+                tracing::warn!(
+                    venv = %venv_path.display(),
+                    error = ?e,
+                    "Failed to forward message to backend"
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Forward a request to the first available backend in the pool.
     ///
     /// Used when no specific target venv is resolved but forwarding is safe
@@ -367,22 +395,11 @@ impl super::LspProxy {
     async fn forward_to_first_backend(&mut self, msg: &RpcMessage) -> Result<(), ProxyError> {
         let first_venv = self.state.pool.first_key().cloned();
         if let Some(venv_path) = first_venv {
-            if let Some(inst) = self.state.pool.get_mut(&venv_path) {
-                inst.last_used = Instant::now();
-                let session = inst.session;
-                if let Some(id) = &msg.id {
-                    self.state.pending_requests.insert(
-                        id.clone(),
-                        crate::state::PendingRequest {
-                            backend_session: session,
-                            venv_path: venv_path.clone(),
-                        },
-                    );
-                }
-                if let Err(e) = inst.writer.write_message(msg).await {
-                    tracing::error!(venv = %venv_path.display(), error = ?e, "Failed to send request to backend");
-                }
+            let session = self.state.pool.get(&venv_path).map(|inst| inst.session);
+            if let Some(session) = session {
+                self.register_pending_request(msg, session, &venv_path);
             }
+            self.forward_to_backend(&venv_path, msg).await?;
         }
         Ok(())
     }

@@ -13,7 +13,7 @@ use crate::venv;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::io::{stdin, stdout};
-use tokio::time::{Instant, MissedTickBehavior};
+use tokio::time::MissedTickBehavior;
 
 pub struct LspProxy {
     state: ProxyState,
@@ -120,12 +120,7 @@ impl LspProxy {
                             // Forward to appropriate backend
                             if let Some(url) = Self::extract_text_document_uri(&msg) {
                                 if let Some(venv_path) = self.venv_for_uri(&url) {
-                                    if let Some(inst) = self.state.pool.get_mut(&venv_path) {
-                                        inst.last_used = Instant::now();
-                                        if let Err(e) = inst.writer.write_message(&msg).await {
-                                            tracing::warn!(venv = %venv_path.display(), error = ?e, "Failed to forward didChange");
-                                        }
-                                    }
+                                    self.forward_to_backend(&venv_path, &msg).await?;
                                 }
                             }
                         }
@@ -138,12 +133,7 @@ impl LspProxy {
 
                             // Forward to appropriate backend
                             if let Some(venv_path) = venv_for_close {
-                                if let Some(inst) = self.state.pool.get_mut(&venv_path) {
-                                    inst.last_used = Instant::now();
-                                    if let Err(e) = inst.writer.write_message(&msg).await {
-                                        tracing::warn!(venv = %venv_path.display(), error = ?e, "Failed to forward didClose");
-                                    }
-                                }
+                                self.forward_to_backend(&venv_path, &msg).await?;
                             }
                         }
                         Some("$/cancelRequest") => {
