@@ -13,14 +13,14 @@ impl super::LspProxy {
     ) {
         let msg = RpcMessage::notification(
             "window/showMessage",
-            serde_json::json!({
+            Some(serde_json::json!({
                 "type": 1,
                 "message": format!(
                     "typemux-cc: Failed to start LSP backend for {}: {}",
                     venv_path.display(),
                     error
                 )
-            }),
+            })),
         );
 
         if let Err(e) = client_writer.write_message(&msg).await {
@@ -73,10 +73,10 @@ impl super::LspProxy {
 
             let clear_msg = RpcMessage::notification(
                 "textDocument/publishDiagnostics",
-                serde_json::json!({
+                Some(serde_json::json!({
                     "uri": uri.to_string(),
                     "diagnostics": []
-                }),
+                })),
             );
 
             match client_writer.write_message(&clear_msg).await {

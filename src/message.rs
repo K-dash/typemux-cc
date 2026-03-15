@@ -54,24 +54,26 @@ impl RpcMessage {
     }
 
     /// Create a JSON-RPC notification (no id, no response expected).
-    pub fn notification(method: &str, params: Value) -> RpcMessage {
+    /// Pass `None` for params-less notifications (field omitted on the wire).
+    pub fn notification(method: &str, params: Option<Value>) -> RpcMessage {
         RpcMessage {
             jsonrpc: "2.0".to_string(),
             id: None,
             method: Some(method.to_string()),
-            params: Some(params),
+            params,
             result: None,
             error: None,
         }
     }
 
     /// Create a JSON-RPC request (has id, expects a response).
-    pub fn request(id: RpcId, method: &str, params: Value) -> RpcMessage {
+    /// Pass `None` for params-less requests (field omitted on the wire).
+    pub fn request(id: RpcId, method: &str, params: Option<Value>) -> RpcMessage {
         RpcMessage {
             jsonrpc: "2.0".to_string(),
             id: Some(id),
             method: Some(method.to_string()),
-            params: Some(params),
+            params,
             result: None,
             error: None,
         }

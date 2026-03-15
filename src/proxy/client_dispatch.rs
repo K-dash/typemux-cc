@@ -70,7 +70,7 @@ impl super::LspProxy {
     pub(crate) async fn dispatch_initialized(&mut self) -> Result<(), ProxyError> {
         tracing::info!("Client initialized");
         // Forward to all backends in the pool
-        let initialized_msg = RpcMessage::notification("initialized", serde_json::json!({}));
+        let initialized_msg = RpcMessage::notification("initialized", Some(serde_json::json!({})));
         // Collect keys to avoid borrow issues
         let venvs: Vec<PathBuf> = self.state.pool.backends_keys();
         for venv in &venvs {

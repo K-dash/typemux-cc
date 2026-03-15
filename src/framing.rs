@@ -125,11 +125,7 @@ mod tests {
     async fn test_write_message() {
         let mut output = Vec::new();
         let mut writer = LspFrameWriter::new(&mut output);
-        let msg = RpcMessage::request(
-            crate::message::RpcId::Number(1),
-            "test",
-            serde_json::Value::Null,
-        );
+        let msg = RpcMessage::request(crate::message::RpcId::Number(1), "test", None);
         writer.write_message(&msg).await.unwrap();
         assert!(output.starts_with(b"Content-Length: "));
     }
