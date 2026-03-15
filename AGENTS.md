@@ -61,11 +61,18 @@ Before committing, verify:
 
 ## Instructions for AI Agents
 
+- **All code comments, commit messages, PR titles, PR descriptions, and review comments MUST be written in English.** No exceptions.
 - Before committing, ALWAYS re-read this Workflow section
 - When user says "commit", first check current branch and create feature branch if on main
 - When user-facing behavior changes, proactively update README.md before committing
 - **No implicit fallbacks** — Never add silent fallback logic that masks errors. Let it fail loudly so unintended behavior is caught early. An explicit error is always better than a silent wrong result.
 - **No backward compatibility** — Do not preserve backward compatibility unless the user explicitly requests it. Breaking changes are the default; do not add compatibility shims, re-exports, or deprecation wrappers.
+
+### Rust Skills
+
+- When investigating or fixing Rust code, prefer rust-skills skills (m01–m15, domain-*, etc.)
+- For ownership/borrow/lifetime errors, load the corresponding m0x skill
+- For clippy errors or code review, load the relevant skill (e.g., coding-guidelines, m15-anti-pattern)
 
 ### Plan-First Rule
 
