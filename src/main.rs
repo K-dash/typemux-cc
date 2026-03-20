@@ -1,9 +1,8 @@
 mod backend;
 mod backend_pool;
-mod error;
-mod framing;
-mod message;
 mod proxy;
+
+pub use typemux_cc::{error, framing, message};
 mod state;
 mod text_edit;
 mod venv;
