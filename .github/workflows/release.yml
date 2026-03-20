@@ -54,5 +54,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ matrix.binary_name }}
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
