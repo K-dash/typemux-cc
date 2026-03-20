@@ -1,5 +1,6 @@
 mod backend;
 mod backend_pool;
+mod doctor;
 mod proxy;
 
 pub use typemux_cc::{error, framing, message};
@@ -8,7 +9,7 @@ mod text_edit;
 mod venv;
 
 use backend::BackendKind;
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser};
 use proxy::LspProxy;
 use std::path::PathBuf;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
@@ -41,11 +42,25 @@ struct Args {
         value_enum
     )]
     backend: BackendKind,
+
+    /// Run self-diagnosis and print configuration/environment info
+    #[arg(long)]
+    doctor: bool,
+
+    /// Output doctor report as JSON (requires --doctor)
+    #[arg(long, requires = "doctor")]
+    json: bool,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let matches = Args::command().get_matches();
+    let args = Args::from_arg_matches(&matches)?;
+
+    if args.doctor {
+        doctor::run_doctor(&args.backend, args.json, &matches).await;
+        return Ok(());
+    }
 
     // Initialize logging (default: stderr, --log-file adds file output)
     if let Some(log_path) = &args.log_file {

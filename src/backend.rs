@@ -24,9 +24,19 @@ impl BackendKind {
         }
     }
 
-    fn command(&self) -> &'static str {
+    pub fn command(&self) -> &'static str {
         match self {
             Self::Pyright => "pyright-langserver",
+            Self::Ty => "ty",
+            Self::Pyrefly => "pyrefly",
+        }
+    }
+
+    /// Command name used for `--version` detection.
+    /// pyright-langserver does not support `--version`, so we use `pyright` instead.
+    pub fn version_command(&self) -> &'static str {
+        match self {
+            Self::Pyright => "pyright",
             Self::Ty => "ty",
             Self::Pyrefly => "pyrefly",
         }

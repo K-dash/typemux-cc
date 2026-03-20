@@ -1015,6 +1015,7 @@ dependencies = [
  "assert_cmd",
  "bytes",
  "clap",
+ "libc",
  "lsp-types",
  "predicates",
  "serde",
