@@ -334,6 +334,7 @@ rm -rf ~/.claude/plugins/cache/typemux-cc-marketplace/
 | Symlinks | May fail to detect `pyvenv.cfg` if `.venv` is a symlink | Use actual directory |
 | setuptools editable installs | Not a typemux-cc bug. All LSP backends (pyright, ty, pyrefly) cannot resolve imports from setuptools-style editable installs that use import hooks ([ty#475](https://github.com/astral-sh/ty/issues/475)) | Switch build backend to hatchling/flit, or add source paths to `extra-paths` in backend config |
 | `workspace/symbol` fan-out latency | With multiple backends, `workspace/symbol` fans out to all backends and merges results; response time equals the slowest backend (timeout: 5s default) | Adjust via `TYPEMUX_CC_FANOUT_TIMEOUT` env var |
+| `workspace/symbol` always returns empty | Claude Code's LSP tool does not pass a `query` parameter to `workspace/symbol` requests. The LSP spec requires `{ query: "search string" }`, but the tool interface only exposes `operation`, `filePath`, `line`, `character`. With an empty query, pyright returns no results. This is a Claude Code limitation, not a typemux-cc bug. | Use Grep/Glob for cross-project symbol search until Claude Code adds `query` support |
 
 ## Architecture
 
