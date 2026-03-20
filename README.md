@@ -63,8 +63,8 @@ npm install -g pyright
 | Backend | Command | Status |
 |---------|---------|--------|
 | [pyright](https://github.com/microsoft/pyright) | `pyright-langserver --stdio` | ✅ Stable (**default** if `TYPEMUX_CC_BACKEND` is not set) |
-| [ty](https://github.com/astral-sh/ty) | `ty server` | 🧪 Experimental (verified) |
-| [pyrefly](https://github.com/facebook/pyrefly) | `pyrefly lsp` | 🧪 Experimental (verified) |
+| [ty](https://github.com/astral-sh/ty) | `ty server` | ✅ Stable |
+| [pyrefly](https://github.com/facebook/pyrefly) | `pyrefly lsp` | ✅ Stable |
 
 ## Requirements
 
