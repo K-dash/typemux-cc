@@ -100,10 +100,10 @@ npm install -g pyright
 # pyright (default, recommended)
 npm install -g pyright
 
-# ty (experimental — by the creators of uv)
+# ty (by the creators of uv)
 pip install ty
 
-# pyrefly (experimental — by Meta)
+# pyrefly (by Meta)
 pip install pyrefly
 ```
 
@@ -318,12 +318,10 @@ rm -rf ~/.claude/plugins/cache/typemux-cc-marketplace/
 
 - Verify `.venv/pyvenv.cfg` exists
 - Verify file is within git repository
-- Check the log for `venv_path=None` — this means the document was cached before `.venv` existed
-- If `.venv` was created after the file was opened, **reopen the file** to trigger venv re-detection
 - Use `RUST_LOG=trace` for detailed venv search logs
 
 > [!Note]
-> **Why does this happen?** typemux-cc caches the venv for each document on first open. If `.venv` doesn't exist yet (e.g., created later by a hook), the cache stores `None`. Subsequent requests reuse the cached value without re-searching. Reopening the file clears the cache entry and triggers a fresh search.
+> If `.venv` didn't exist when a file was first opened, typemux-cc automatically re-searches for it on the next LSP request. No need to reopen the file.
 
 ## Known Limitations
 
@@ -333,7 +331,6 @@ rm -rf ~/.claude/plugins/cache/typemux-cc-marketplace/
 | macOS Intel unsupported | Prebuilt is arm64 only | Use Apple Silicon |
 | Fixed venv name | Only `.venv` with `pyvenv.cfg` — intentionally strict to avoid silently wrong environments (poetry/conda/etc. not supported) | Rename to `.venv` or create a `.venv` symlink |
 | Symlinks | May fail to detect `pyvenv.cfg` if `.venv` is a symlink | Use actual directory |
-| Late `.venv` creation | venv cached as `None` if `.venv` didn't exist when file was opened | Reopen the file after creating `.venv` |
 | setuptools editable installs | Not a typemux-cc bug. All LSP backends (pyright, ty, pyrefly) cannot resolve imports from setuptools-style editable installs that use import hooks ([ty#475](https://github.com/astral-sh/ty/issues/475)) | Switch build backend to hatchling/flit, or add source paths to `extra-paths` in backend config |
 | `workspace/symbol` with multiple backends | URI-less requests like `workspace/symbol` cannot be routed when multiple backends are active, because there is no file URI to determine the target backend | Works with a single backend; use Grep/Glob as alternative for cross-project symbol search |
 
