@@ -240,13 +240,19 @@ impl super::LspProxy {
         Ok(())
     }
 
-    /// Cancel pending requests for a specific backend (identified by venv_path + session)
+    /// Cancel pending requests for a specific backend (identified by venv_path + session).
+    /// Also handles fan-out sub-requests: removes them from pending fanouts and
+    /// completes any fanouts that have no remaining sub-requests.
     pub(crate) async fn cancel_pending_requests_for_backend(
         &mut self,
         client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
         venv_path: &PathBuf,
         session: u64,
     ) -> Result<(), ProxyError> {
+        // First: cancel fan-out sub-requests for this backend
+        let affected_fanout_ids = self.cancel_fanout_sub_requests(venv_path, session);
+
+        // Then: cancel normal pending requests (fan-out sub-requests are already removed)
         let to_cancel: Vec<RpcId> = self
             .state
             .pending_requests
@@ -263,6 +269,13 @@ impl super::LspProxy {
             );
             client_writer.write_message(&msg).await?;
             tracing::info!(id = ?id, venv = %venv_path.display(), session = session, "Cancelled pending request");
+        }
+
+        // Complete any fan-outs that have no remaining sub-requests
+        for client_id in affected_fanout_ids {
+            if let Some(fanout) = self.state.pending_fanouts.remove(&client_id) {
+                self.complete_fanout(fanout, client_writer).await?;
+            }
         }
 
         Ok(())

@@ -1,7 +1,7 @@
 use crate::backend_pool::BackendMessage;
 use crate::error::ProxyError;
 use crate::framing::LspFrameWriter;
-use crate::message::RpcMessage;
+use crate::message::{RpcId, RpcMessage};
 
 impl super::LspProxy {
     /// Handle a message received from a backend via the mpsc channel.
@@ -85,9 +85,14 @@ impl super::LspProxy {
                     return Ok(());
                 }
 
-                // Handle response: check pending + stale check
+                // Handle response: check fan-out first, then pending + stale check
                 if msg.is_response() {
                     if let Some(id) = &msg.id {
+                        // Fan-out response check: must come before normal pending_requests handling
+                        if self.handle_fanout_response(id, &msg, client_writer).await? {
+                            return Ok(());
+                        }
+
                         if let Some(pending) = self.state.pending_requests.get(id) {
                             if pending.backend_session != session || pending.venv_path != venv_path
                             {
@@ -102,6 +107,16 @@ impl super::LspProxy {
                                 self.state.pending_requests.remove(id);
                                 return Ok(());
                             }
+                        } else if is_proxy_assigned_id(id) {
+                            // Response for a proxy-assigned ID that is not in pending_requests
+                            // and was not consumed by fan-out. This is a stale response from a
+                            // cancelled/expired fan-out sub-request — discard it.
+                            tracing::debug!(
+                                id = ?id,
+                                venv = %venv_path.display(),
+                                "Discarding stale fan-out sub-request response (already completed/cancelled)"
+                            );
+                            return Ok(());
                         }
                         self.state.pending_requests.remove(id);
                     }
@@ -150,6 +165,12 @@ impl super::LspProxy {
 
         Ok(())
     }
+}
+
+/// Check if an RPC ID was assigned by the proxy (negative numbers).
+/// Used to detect stale fan-out sub-request responses that should be dropped.
+fn is_proxy_assigned_id(id: &RpcId) -> bool {
+    matches!(id, RpcId::Number(n) if *n < 0)
 }
 
 /// Check if a `$/progress` notification has `params.value.kind == "end"`.

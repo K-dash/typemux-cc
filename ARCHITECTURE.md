@@ -201,13 +201,63 @@ Strict Venv Mode implements this philosophy.
 | URI-bearing request, cache miss | Attempt full venv resolution via `ensure_backend_in_pool` |
 | URI-bearing request, non-file URI | Return error (cannot resolve venv for non-file scheme) |
 | URI-less request (e.g., `workspace/symbol`), single backend | Forward to sole backend (no cross-contamination risk) |
-| URI-less request, multiple backends | Return error (cannot determine target venv) |
+| URI-less fan-out request (e.g., `workspace/symbol`), multiple backends | Fan-out to all backends, merge deduplicated results |
+| URI-less non-fan-out request, multiple backends | Return error (cannot determine target venv) |
 
 ### Cache Limitation (Important)
 
 When a document is already cached, its venv is not re-searched on request.
 This means creating `.venv` **after** opening a file will not take effect for that file
 until it is reopened (or the document cache is refreshed).
+
+## Fan-Out for URI-less Requests
+
+### Problem
+
+Some LSP methods like `workspace/symbol` have no document URI, so the proxy cannot determine which backend to route to. Previously, these requests returned an error when multiple backends were active.
+
+### Solution: Fan-Out with Merge
+
+For methods in the `FANOUT_METHODS` list (currently `workspace/symbol`), the proxy fans out the request to **all** active backends, collects results, deduplicates, and returns a merged response.
+
+```mermaid
+sequenceDiagram
+    participant Client as Claude Code
+    participant Proxy as typemux-cc
+    participant A as Backend A
+    participant B as Backend B
+
+    Client->>Proxy: workspace/symbol (id: 42)
+    Note over Proxy: Fan-out: dispatch to all backends
+
+    Proxy->>A: workspace/symbol (id: -1)
+    Proxy->>B: workspace/symbol (id: -2)
+
+    B->>Proxy: response (id: -2, results: [...])
+    A->>Proxy: response (id: -1, results: [...])
+
+    Note over Proxy: All responses collected<br/>Deduplicate and merge
+
+    Proxy->>Client: response (id: 42, merged results)
+```
+
+### Deduplication
+
+Results are deduplicated using the key: `(uri, range.start.line, range.start.character, name, kind)`. Items with missing fields are kept defensively.
+
+### Timeout and Partial Results
+
+If a backend does not respond within the fan-out timeout (default 5s, configurable via `TYPEMUX_CC_FANOUT_TIMEOUT`):
+
+1. A `window/showMessage` warning is sent to the client listing timed-out backends
+2. `$/cancelRequest` is sent to remaining backends (best effort)
+3. Partial results from completed backends are returned
+
+If **all** backends fail (errors or timeouts with no results), an explicit error response is returned.
+
+### Backend Crash During Fan-Out
+
+If a backend crashes or is evicted during a fan-out, its sub-request is removed and `expected_count` is decremented. The fan-out completes with results from surviving backends.
 
 ## Operation Sequences
 
@@ -379,6 +429,7 @@ Documents under project-a/ are skipped. Skipped documents get empty diagnostics 
 | Incremental sync | `textDocument/didChange` partial update support |
 | Backend→client proxying | Proxy ID rewriting for multiplexed backend requests |
 | `$/cancelRequest` handling | Cancel warmup-queued requests without forwarding |
+| Fan-out requests | `workspace/symbol` dispatched to all backends with merged, deduplicated results |
 | Strict venv mode | Return errors when no venv found |
 | Diagnostics cleanup | Clear stale diagnostics on backend eviction |
 
@@ -475,9 +526,10 @@ make ci
 | `text_edit.rs` | Incremental text edit application for didChange |
 | `venv.rs` | `.venv` search logic (parent traversal, git toplevel boundary) |
 | `error.rs` | Error type definitions (ProxyError, BackendError, etc.) |
-| `proxy/mod.rs` | Main event loop (`tokio::select!` with 4 arms) |
+| `proxy/mod.rs` | Main event loop (`tokio::select!` with 5 arms) |
 | `proxy/client_dispatch.rs` | Client message routing, warmup queueing, cancel handling |
 | `proxy/backend_dispatch.rs` | Backend message routing, proxy ID rewriting, progress detection |
+| `proxy/fanout.rs` | Fan-out dispatch, response merging, deduplication, timeout handling |
 | `proxy/pool_management.rs` | LRU/TTL eviction, crash recovery, warmup expiry |
 | `proxy/initialization.rs` | Backend initialization handshake, document restoration |
 | `proxy/document.rs` | Document tracking (didOpen, didChange, didClose) |
@@ -485,7 +537,7 @@ make ci
 
 ### Event Loop
 
-The main event loop in `proxy/mod.rs` uses `tokio::select!` with 4 arms:
+The main event loop in `proxy/mod.rs` uses `tokio::select!` with 5 arms:
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -495,5 +547,6 @@ The main event loop in `proxy/mod.rs` uses `tokio::select!` with 4 arms:
 │ 2. Backend reader    │ mpsc channel (all backends)  │
 │ 3. TTL timer         │ 60s interval sweep           │
 │ 4. Warmup timer      │ nearest warmup deadline      │
+│ 5. Fan-out timer     │ nearest fan-out deadline     │
 └─────────────────────────────────────────────────────┘
 ```

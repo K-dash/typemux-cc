@@ -2,6 +2,7 @@ mod backend_dispatch;
 mod client_dispatch;
 mod diagnostics;
 mod document;
+mod fanout;
 mod initialization;
 mod pool_management;
 
@@ -73,8 +74,9 @@ impl LspProxy {
         ttl_interval.tick().await;
 
         loop {
-            // Compute warmup deadline before entering select! to avoid borrow conflicts
+            // Compute deadlines before entering select! to avoid borrow conflicts
             let warmup_deadline = self.state.pool.nearest_warmup_deadline();
+            let fanout_deadline = self.state.nearest_fanout_deadline();
 
             tokio::select! {
                 // Messages from client
@@ -137,7 +139,7 @@ impl LspProxy {
                             }
                         }
                         Some("$/cancelRequest") => {
-                            self.dispatch_cancel_request(&msg).await?;
+                            self.dispatch_cancel_request(&msg, &mut client_writer).await?;
                         }
                         _ if msg.is_request() => {
                             self.dispatch_client_request(&msg, &mut client_writer).await?;
@@ -167,6 +169,16 @@ impl LspProxy {
                     }
                 } => {
                     self.expire_warmup_backends(&mut client_writer).await?;
+                }
+
+                // Fan-out timeout: return partial results for timed-out fan-out requests
+                _ = async {
+                    match fanout_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    self.expire_fanout_requests(&mut client_writer).await?;
                 }
             }
         }
