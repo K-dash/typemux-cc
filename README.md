@@ -291,14 +291,51 @@ Each backend process is spawned with `VIRTUAL_ENV` and `PATH` set to point at th
 
 ## Troubleshooting
 
-### LSP Not Working
+### Self-Diagnosis (`--doctor`)
 
-> **Tip**: Enable file logging first: add `TYPEMUX_CC_LOG_FILE=/tmp/typemux-cc.log` to your [config](#configuration).
+Run `--doctor` to dump configuration, environment, and system info at a glance:
 
 ```bash
-which pyright-langserver              # Check if backend is in PATH (or: which ty, which pyrefly)
-cat ~/.claude/settings.json | grep typemux  # Check plugin settings
-tail -100 /tmp/typemux-cc.log        # Check logs
+typemux-cc --doctor
+```
+
+```
+typemux-cc v0.2.8
+
+Configuration:
+  backend         pyright    (default)
+  max_backends    8          (default)
+  backend_ttl     1800       (env: TYPEMUX_CC_BACKEND_TTL)
+  warmup_timeout  2          (default)
+  fanout_timeout  5          (default)
+  log_file        <not set>  (default)
+
+Environment:
+  Backend binary    pyright-langserver
+    Path            /usr/local/bin/pyright-langserver
+    Version         pyright 1.1.350
+  Git toplevel      /Users/foo/project
+  Fallback venv     /Users/foo/project/.venv
+
+System:
+  OS                macos (Darwin 24.0.0)
+  Arch              aarch64
+```
+
+Add `--json` for machine-readable output:
+
+```bash
+typemux-cc --doctor --json
+```
+
+### LSP Not Working
+
+> **Tip**: Run `typemux-cc --doctor` first to check your configuration and backend availability. For detailed logs, add `TYPEMUX_CC_LOG_FILE=/tmp/typemux-cc.log` to your [config](#configuration).
+
+```bash
+typemux-cc --doctor                          # Quick self-diagnosis
+cat ~/.claude/settings.json | grep typemux   # Check plugin settings
+tail -100 /tmp/typemux-cc.log               # Check logs (if file logging enabled)
 ```
 
 ### Plugin Update Not Taking Effect
