@@ -59,6 +59,17 @@ impl super::LspProxy {
                     "Backend -> Proxy"
                 );
 
+                // Trace-level: log response body for debugging definition/references issues
+                if msg.is_response() {
+                    tracing::trace!(
+                        id = ?msg.id,
+                        result = ?msg.result,
+                        error = ?msg.error,
+                        venv = %venv_path.display(),
+                        "Backend response body"
+                    );
+                }
+
                 // Check if this is a server→client request from the backend
                 if msg.is_request() {
                     if let Some(original_id) = &msg.id {
@@ -149,6 +160,14 @@ impl super::LspProxy {
                 }
 
                 // Forward to client
+                if msg.is_response() {
+                    tracing::trace!(
+                        id = ?msg.id,
+                        has_result = msg.result.is_some(),
+                        has_error = msg.error.is_some(),
+                        "Forwarding response to client"
+                    );
+                }
                 client_writer.write_message(&msg).await?;
             }
             Err(e) => {

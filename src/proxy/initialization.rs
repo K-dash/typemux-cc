@@ -60,6 +60,11 @@ async fn perform_initialize_handshake(
     venv: &Path,
 ) -> Result<RpcMessage, ProxyError> {
     rewrite_root_uri(&mut init_params, venv);
+    tracing::trace!(
+        venv = %venv.display(),
+        init_params = %init_params,
+        "Full initialize params sent to backend"
+    );
     let init_msg = RpcMessage::request(RpcId::Number(1), "initialize", Some(init_params));
 
     tracing::info!(venv = %venv.display(), "Sending initialize to backend");
