@@ -899,7 +899,7 @@ dependencies = [
 
 [[package]]
 name = "typemux-cc"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "bytes",
