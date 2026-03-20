@@ -43,7 +43,7 @@ async fn smoke_test_lifecycle() {
     };
 
     let (temp_dir, root) = support::setup_test_workspace(&config);
-    let mut proxy = ProxyUnderTest::spawn(temp_dir, &root.join("pkg"));
+    let mut proxy = ProxyUnderTest::spawn(temp_dir, root.clone(), &root.join("pkg"));
 
     // Initialize
     let root_uri = support::path_to_uri(&root.join("pkg"));
