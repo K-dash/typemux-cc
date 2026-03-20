@@ -5,6 +5,48 @@ use crate::framing::LspFrameWriter;
 use crate::message::{RpcId, RpcMessage};
 use serde_json::Value;
 use std::path::Path;
+use url::Url;
+
+/// Rewrite rootUri, rootPath, and workspaceFolders in initialize params
+/// to point to the venv's parent directory (the project root).
+///
+/// This ensures each backend indexes only the project that owns the venv,
+/// which is critical for worktree paths (dot-prefixed directories like
+/// `.worktree/` are excluded from indexing when rootUri points to the
+/// main repo root).
+fn rewrite_root_uri(init_params: &mut Value, venv: &Path) {
+    let project_root = match venv.parent() {
+        Some(p) => p,
+        None => return,
+    };
+
+    let root_uri = match Url::from_file_path(project_root) {
+        Ok(u) => u.to_string(),
+        Err(()) => return,
+    };
+
+    let dir_name = project_root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("workspace");
+
+    let root_path = project_root.to_string_lossy().to_string();
+
+    tracing::info!(
+        root_uri = %root_uri,
+        root_path = %root_path,
+        "Rewriting initialize params rootUri to venv project root"
+    );
+
+    if let Some(obj) = init_params.as_object_mut() {
+        obj.insert("rootUri".to_string(), Value::String(root_uri.clone()));
+        obj.insert("rootPath".to_string(), Value::String(root_path));
+        obj.insert(
+            "workspaceFolders".to_string(),
+            serde_json::json!([{"uri": root_uri, "name": dir_name}]),
+        );
+    }
+}
 
 /// Perform the LSP initialize handshake with a backend:
 /// 1. Send `initialize` request with the given params
@@ -14,9 +56,10 @@ use std::path::Path;
 /// Returns the initialize response from the backend.
 async fn perform_initialize_handshake(
     backend: &mut LspBackend,
-    init_params: Value,
+    mut init_params: Value,
     venv: &Path,
 ) -> Result<RpcMessage, ProxyError> {
+    rewrite_root_uri(&mut init_params, venv);
     let init_msg = RpcMessage::request(RpcId::Number(1), "initialize", Some(init_params));
 
     tracing::info!(venv = %venv.display(), "Sending initialize to backend");
