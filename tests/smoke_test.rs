@@ -27,6 +27,11 @@ async fn smoke_test_lifecycle() {
                 "expect": { "method": "initialized" },
                 "actions": []
             },
+            // dispatch_initialized forwards a 2nd "initialized" to fallback backends
+            {
+                "expect": { "method": "initialized" },
+                "actions": []
+            },
             {
                 "expect": { "method": "shutdown" },
                 "actions": [{ "type": "respond", "body": null }]

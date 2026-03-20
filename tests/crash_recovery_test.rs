@@ -18,6 +18,8 @@ async fn backend_crash_recovery() {
                 "actions": [{ "type": "respond", "body": { "capabilities": { "hoverProvider": true } } }]
             },
             { "expect": { "method": "initialized" }, "actions": [] },
+            // dispatch_initialized forwards a 2nd "initialized" to fallback backends
+            { "expect": { "method": "initialized" }, "actions": [] },
             { "expect": { "method": "textDocument/didOpen" }, "actions": [] },
             {
                 "expect": { "method": "textDocument/hover" },
