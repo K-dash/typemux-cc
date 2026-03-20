@@ -14,12 +14,31 @@ impl super::LspProxy {
         file_path: &Path,
         client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
     ) -> Result<Option<PathBuf>, ProxyError> {
-        // Get venv from cache
-        let target_venv = if let Some(doc) = self.state.open_documents.get(url) {
-            doc.venv.clone()
-        } else {
-            tracing::debug!(uri = %url, "URI not in cache, searching venv");
-            venv::find_venv(file_path, self.state.git_toplevel.as_deref()).await?
+        // Get venv from cache (clone to avoid borrow conflict with later get_mut)
+        let cached_venv = self
+            .state
+            .open_documents
+            .get(url)
+            .map(|doc| doc.venv.clone());
+
+        let target_venv = match cached_venv {
+            Some(Some(v)) => Some(v),
+            Some(None) => {
+                // venv was not found when the document was opened.
+                // Re-search in case .venv was created after didOpen.
+                let found = venv::find_venv(file_path, self.state.git_toplevel.as_deref()).await?;
+                if let Some(ref venv_path) = found {
+                    if let Some(doc) = self.state.open_documents.get_mut(url) {
+                        doc.venv = Some(venv_path.clone());
+                    }
+                    tracing::info!(uri = %url, venv = %venv_path.display(), "venv discovered after didOpen, cache updated");
+                }
+                found
+            }
+            None => {
+                tracing::debug!(uri = %url, "URI not in cache, searching venv");
+                venv::find_venv(file_path, self.state.git_toplevel.as_deref()).await?
+            }
         };
 
         let target_venv = match target_venv {
