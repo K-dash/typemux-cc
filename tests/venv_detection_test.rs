@@ -64,7 +64,7 @@ async fn venv_detection_routing() {
     let (temp_dir, root) = support::setup_test_workspace(&config);
     // Start the proxy from the workspace root (above both packages).
     // No fallback venv at root level → proxy starts with empty pool.
-    let mut proxy = ProxyUnderTest::spawn(temp_dir, &root);
+    let mut proxy = ProxyUnderTest::spawn(temp_dir, root.clone(), &root);
 
     let root_uri = support::path_to_uri(&root);
     let init_resp = proxy.initialize(&root_uri).await;

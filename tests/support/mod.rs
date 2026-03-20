@@ -94,12 +94,13 @@ pub struct ProxyUnderTest {
     writer: LspFrameWriter<tokio::process::ChildStdin>,
     #[allow(dead_code)]
     temp_dir: TempDir,
+    root: PathBuf,
     next_id: i64,
 }
 
 impl ProxyUnderTest {
     /// Spawn the proxy binary with the given workspace as cwd.
-    pub fn spawn(temp_dir: TempDir, cwd: &Path) -> Self {
+    pub fn spawn(temp_dir: TempDir, root: PathBuf, cwd: &Path) -> Self {
         let proxy_bin = env!("CARGO_BIN_EXE_typemux-cc");
         let mut child = Command::new(proxy_bin)
             .current_dir(cwd)
@@ -124,8 +125,14 @@ impl ProxyUnderTest {
             reader: LspFrameReader::new(stdout),
             writer: LspFrameWriter::new(stdin),
             temp_dir,
+            root,
             next_id: 1,
         }
+    }
+
+    /// Return the canonical workspace root path.
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     // ── LSP helpers ─────────────────────────────────────────────────
@@ -192,6 +199,61 @@ impl ProxyUnderTest {
         let exit_msg = RpcMessage::notification("exit", None);
         self.write(&exit_msg).await;
         resp
+    }
+
+    /// Wait for crash cleanup to complete by observing `publishDiagnostics` notifications.
+    ///
+    /// Reads messages until `expected_diag_count` publishDiagnostics notifications
+    /// with empty diagnostics arrays are received, or the absolute deadline expires.
+    /// Panics if a non-notification message (response) is received unexpectedly.
+    pub async fn wait_for_crash_cleanup(
+        &mut self,
+        expected_diag_count: usize,
+        timeout_ms: u64,
+    ) -> Vec<RpcMessage> {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+        let mut collected = Vec::new();
+        let mut diag_count = 0;
+
+        while diag_count < expected_diag_count {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                panic!(
+                    "wait_for_crash_cleanup: timed out after {}ms, got {}/{} diagnostics",
+                    timeout_ms, diag_count, expected_diag_count
+                );
+            }
+            match tokio::time::timeout(remaining, self.reader.read_message()).await {
+                Ok(Ok(msg)) => {
+                    assert!(
+                        msg.is_notification(),
+                        "wait_for_crash_cleanup: unexpected non-notification: {:?}",
+                        msg
+                    );
+                    if msg.method.as_deref() == Some("textDocument/publishDiagnostics") {
+                        if let Some(params) = &msg.params {
+                            if let Some(diags) = params.get("diagnostics") {
+                                if diags.as_array().is_some_and(|a| a.is_empty()) {
+                                    diag_count += 1;
+                                }
+                            }
+                        }
+                    }
+                    collected.push(msg);
+                }
+                Ok(Err(e)) => {
+                    let stderr = self.dump_stderr().await;
+                    panic!("wait_for_crash_cleanup: read error: {e}\n--- stderr ---\n{stderr}");
+                }
+                Err(_) => {
+                    panic!(
+                        "wait_for_crash_cleanup: timed out after {}ms, got {}/{} diagnostics",
+                        timeout_ms, diag_count, expected_diag_count
+                    );
+                }
+            }
+        }
+        collected
     }
 
     /// Read the next LSP message (with timeout).
