@@ -215,6 +215,7 @@ TYPEMUX_CC_LOG_FILE=/tmp/typemux-cc.log ./target/release/typemux-cc
 | `TYPEMUX_CC_BACKEND` | LSP backend to use | `pyright` |
 | `TYPEMUX_CC_MAX_BACKENDS` | Max concurrent backend processes | `8` |
 | `TYPEMUX_CC_BACKEND_TTL` | Backend TTL in seconds (0 = disabled) | `1800` |
+| `TYPEMUX_CC_FANOUT_TIMEOUT` | Fan-out timeout in seconds for `workspace/symbol` (0 = no timeout) | `5` |
 | `RUST_LOG` | Log level | `typemux_cc=debug` |
 
 For config file method and details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
@@ -332,7 +333,7 @@ rm -rf ~/.claude/plugins/cache/typemux-cc-marketplace/
 | Fixed venv name | Only `.venv` with `pyvenv.cfg` — intentionally strict to avoid silently wrong environments (poetry/conda/etc. not supported) | Rename to `.venv` or create a `.venv` symlink |
 | Symlinks | May fail to detect `pyvenv.cfg` if `.venv` is a symlink | Use actual directory |
 | setuptools editable installs | Not a typemux-cc bug. All LSP backends (pyright, ty, pyrefly) cannot resolve imports from setuptools-style editable installs that use import hooks ([ty#475](https://github.com/astral-sh/ty/issues/475)) | Switch build backend to hatchling/flit, or add source paths to `extra-paths` in backend config |
-| `workspace/symbol` with multiple backends | URI-less requests like `workspace/symbol` cannot be routed when multiple backends are active, because there is no file URI to determine the target backend | Works with a single backend; use Grep/Glob as alternative for cross-project symbol search |
+| `workspace/symbol` fan-out latency | With multiple backends, `workspace/symbol` fans out to all backends and merges results; response time equals the slowest backend (timeout: 5s default) | Adjust via `TYPEMUX_CC_FANOUT_TIMEOUT` env var |
 
 ## Architecture
 

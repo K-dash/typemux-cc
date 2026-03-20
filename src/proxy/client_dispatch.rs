@@ -15,6 +15,9 @@ const INDEX_DEPENDENT_METHODS: &[&str] = &[
     "textDocument/typeDefinition",
 ];
 
+/// LSP methods that support fan-out to all backends when multiple are active.
+const FANOUT_METHODS: &[&str] = &["workspace/symbol"];
+
 impl super::LspProxy {
     /// Handle client "initialize" request.
     ///
@@ -332,21 +335,25 @@ impl super::LspProxy {
                 // Single backend: no cross-contamination possible, forward unconditionally
                 self.forward_to_first_backend(msg).await?;
             } else {
-                // Multiple backends: cannot determine target for URI-less requests
+                // Multiple backends: fan-out or reject
                 let method_name = msg.method_name().unwrap_or("");
-                tracing::warn!(
-                    method = method_name,
-                    pool_size = self.state.pool.len(),
-                    "Rejecting URI-less request: cannot determine target venv (multiple backends active)"
-                );
-                let error_response = RpcMessage::error_response(
-                    msg,
-                    &format!(
-                        "lsp-proxy: cannot route '{}' without a document URI (multiple backends active)",
-                        method_name
-                    ),
-                );
-                client_writer.write_message(&error_response).await?;
+                if FANOUT_METHODS.contains(&method_name) {
+                    self.dispatch_fanout_request(msg, client_writer).await?;
+                } else {
+                    tracing::warn!(
+                        method = method_name,
+                        pool_size = self.state.pool.len(),
+                        "Rejecting URI-less request: cannot determine target venv (multiple backends active)"
+                    );
+                    let error_response = RpcMessage::error_response(
+                        msg,
+                        &format!(
+                            "lsp-proxy: cannot route '{}' without a document URI (multiple backends active)",
+                            method_name
+                        ),
+                    );
+                    client_writer.write_message(&error_response).await?;
+                }
             }
         }
 
@@ -430,8 +437,16 @@ impl super::LspProxy {
     pub(crate) async fn dispatch_cancel_request(
         &mut self,
         msg: &RpcMessage,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
     ) -> Result<(), ProxyError> {
         if let Some(cancelled_id) = extract_cancel_id(msg) {
+            // Check if cancelled ID is a pending fan-out
+            if self.state.pending_fanouts.contains_key(&cancelled_id) {
+                self.cancel_fanout_request(&cancelled_id, client_writer)
+                    .await?;
+                return Ok(());
+            }
+
             if let Some(pending) = self.state.pending_requests.get(&cancelled_id).cloned() {
                 if let Some(inst) = self.state.pool.get_mut(&pending.venv_path) {
                     if inst.session == pending.backend_session
@@ -449,7 +464,7 @@ impl super::LspProxy {
             }
         }
 
-        // Not in warmup queue — forward $/cancelRequest to all backends
+        // Not in warmup queue or fan-out — forward $/cancelRequest to all backends
         self.dispatch_client_notification(msg).await
     }
 

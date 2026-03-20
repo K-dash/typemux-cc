@@ -33,6 +33,19 @@ pub fn warmup_timeout() -> Duration {
         .unwrap_or(DEFAULT_WARMUP_TIMEOUT)
 }
 
+/// Default fan-out timeout; overridable via `TYPEMUX_CC_FANOUT_TIMEOUT` env var.
+const DEFAULT_FANOUT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Returns the fan-out timeout duration for workspace/symbol and similar multi-backend requests.
+/// `TYPEMUX_CC_FANOUT_TIMEOUT=0` means no timeout (wait forever).
+pub fn fanout_timeout() -> Duration {
+    std::env::var("TYPEMUX_CC_FANOUT_TIMEOUT")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(DEFAULT_FANOUT_TIMEOUT)
+}
+
 /// Message from a backend reader task
 pub struct BackendMessage {
     pub venv_path: PathBuf,

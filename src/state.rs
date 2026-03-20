@@ -4,6 +4,7 @@ use crate::message::{RpcId, RpcMessage};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio::time::Instant;
 use url::Url;
 
 /// Information about pending requests
@@ -25,6 +26,27 @@ pub struct PendingBackendRequest {
     pub venv_path: PathBuf,
     /// Session of the originating backend
     pub session: u64,
+}
+
+/// State for a fan-out request (dispatched to all backends, results merged)
+pub struct PendingFanout {
+    /// Original client request ID
+    pub client_request_id: RpcId,
+    /// Number of backends we are still waiting for
+    pub expected_count: usize,
+    /// Collected results from successful backends
+    pub results: Vec<serde_json::Value>,
+    /// Maps proxy_id → (venv_path, session) for each sub-request
+    pub sub_requests: HashMap<RpcId, (PathBuf, u64)>,
+    /// Deadline for the fan-out (partial results returned after this).
+    /// None means no timeout (wait forever).
+    pub deadline: Option<Instant>,
+    /// Whether we already sent a window/showMessage notification for this fan-out
+    pub notified: bool,
+    /// Venv paths of backends that failed or timed out
+    pub failed_backends: Vec<PathBuf>,
+    /// Original client request (needed to build error response if all fail)
+    pub client_request: RpcMessage,
 }
 
 /// Open document
@@ -62,6 +84,9 @@ pub struct ProxyState {
 
     /// Backend pool
     pub pool: BackendPool,
+
+    /// Pending fan-out requests (keyed by client request ID)
+    pub pending_fanouts: HashMap<RpcId, PendingFanout>,
 }
 
 impl ProxyState {
@@ -79,6 +104,7 @@ impl ProxyState {
             pending_backend_requests: HashMap::new(),
             next_proxy_request_id: -1, // Use negative IDs to avoid collision with client IDs
             pool: BackendPool::new(max_backends, backend_ttl),
+            pending_fanouts: HashMap::new(),
         }
     }
 
@@ -88,5 +114,14 @@ impl ProxyState {
         let id = self.next_proxy_request_id;
         self.next_proxy_request_id -= 1;
         RpcId::Number(id)
+    }
+
+    /// Return the nearest fan-out deadline among all pending fan-outs.
+    /// Returns None if no fan-outs are pending.
+    pub fn nearest_fanout_deadline(&self) -> Option<Instant> {
+        self.pending_fanouts
+            .values()
+            .filter_map(|f| f.deadline)
+            .min()
     }
 }
