@@ -1,5 +1,6 @@
 mod backend;
 mod backend_pool;
+mod config;
 mod doctor;
 mod proxy;
 
@@ -54,11 +55,14 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load config file BEFORE clap parsing so env vars are available for clap's `env = "..."`
+    let config_report = config::load_config_file();
+
     let matches = Args::command().get_matches();
     let args = Args::from_arg_matches(&matches)?;
 
     if args.doctor {
-        doctor::run_doctor(&args.backend, args.json, &matches).await;
+        doctor::run_doctor(&args.backend, args.json, &matches, &config_report).await;
         return Ok(());
     }
 

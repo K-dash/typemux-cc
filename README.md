@@ -169,56 +169,35 @@ cargo build --release
 
 ## Usage
 
-Automatically starts as a Claude Code plugin. For manual execution:
-
-```bash
-./target/release/typemux-cc
-./target/release/typemux-cc --help
-```
-
-### Backend Selection
-
-```bash
-# Via CLI flag
-./target/release/typemux-cc --backend ty
-
-# Via environment variable
-TYPEMUX_CC_BACKEND=ty ./target/release/typemux-cc
-```
+Automatically starts as a Claude Code plugin — no manual setup required.
 
 ### Configuration
 
-To configure the backend via the wrapper script (persistent across sessions):
+Settings are stored in `~/.config/typemux-cc/config`. The file uses `KEY=VALUE` format (shell expansion is **not** supported):
 
 ```bash
 mkdir -p ~/.config/typemux-cc
 cat > ~/.config/typemux-cc/config << 'EOF'
 # Select backend (pyright, ty, or pyrefly)
-export TYPEMUX_CC_BACKEND="pyright"
+TYPEMUX_CC_BACKEND=pyright
 
-# Enable file output
-export TYPEMUX_CC_LOG_FILE="/tmp/typemux-cc.log"
+# Enable file logging
+TYPEMUX_CC_LOG_FILE=/tmp/typemux-cc.log
 EOF
 ```
 
-### Logging
+> **Note:** `export KEY=VALUE` syntax is also accepted for compatibility with older config files.
 
-Default output is stderr. For file output:
+Settings priority: **CLI flag > environment variable > config file > default**
 
-```bash
-TYPEMUX_CC_LOG_FILE=/tmp/typemux-cc.log ./target/release/typemux-cc
-```
-
-| Environment Variable | Description | Default |
-|----------------------|-------------|---------|
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `TYPEMUX_CC_LOG_FILE` | Log file path | Not set (stderr only) |
 | `TYPEMUX_CC_BACKEND` | LSP backend to use | `pyright` |
 | `TYPEMUX_CC_MAX_BACKENDS` | Max concurrent backend processes | `8` |
 | `TYPEMUX_CC_BACKEND_TTL` | Backend TTL in seconds (0 = disabled) | `1800` |
 | `TYPEMUX_CC_FANOUT_TIMEOUT` | Fan-out timeout in seconds for `workspace/symbol` (0 = no timeout) | `5` |
 | `RUST_LOG` | Log level | `typemux_cc=debug` |
-
-For config file method and details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Typical Use Case
 
@@ -296,19 +275,28 @@ Each backend process is spawned with `VIRTUAL_ENV` and `PATH` set to point at th
 Run `--doctor` to dump configuration, environment, and system info at a glance:
 
 ```bash
-typemux-cc --doctor
+# Find the binary in the plugin cache, then run --doctor
+ls ~/.claude/plugins/cache/typemux-cc-marketplace/typemux-cc/
+# → 0.2.9
+~/.claude/plugins/cache/typemux-cc-marketplace/typemux-cc/0.2.9/bin/typemux-cc --doctor
 ```
 
+The binary reads `~/.config/typemux-cc/config` directly, so your settings are reflected in the output:
+
 ```
-typemux-cc v0.2.8
+typemux-cc v0.2.9
+
+Config file:
+  Path              /Users/foo/.config/typemux-cc/config
+  Status            loaded
 
 Configuration:
-  backend         pyright    (default)
-  max_backends    8          (default)
-  backend_ttl     1800       (env: TYPEMUX_CC_BACKEND_TTL)
-  warmup_timeout  2          (default)
-  fanout_timeout  5          (default)
-  log_file        <not set>  (default)
+  backend         pyright              (default)
+  max_backends    8                    (default)
+  backend_ttl     1800                 (default)
+  warmup_timeout  2                    (default)
+  fanout_timeout  5                    (default)
+  log_file        /tmp/typemux-cc.log  (config: /Users/foo/.config/typemux-cc/config)
 
 Environment:
   Backend binary    pyright-langserver
@@ -325,15 +313,16 @@ System:
 Add `--json` for machine-readable output:
 
 ```bash
-typemux-cc --doctor --json
+~/.claude/plugins/cache/typemux-cc-marketplace/typemux-cc/0.2.9/bin/typemux-cc --doctor --json
 ```
 
 ### LSP Not Working
 
-> **Tip**: Run `typemux-cc --doctor` first to check your configuration and backend availability. For detailed logs, add `TYPEMUX_CC_LOG_FILE=/tmp/typemux-cc.log` to your [config](#configuration).
+> **Tip**: Run `--doctor` first to check your configuration and backend availability. For detailed logs, add `TYPEMUX_CC_LOG_FILE=/tmp/typemux-cc.log` to your [config](#configuration).
 
 ```bash
-typemux-cc --doctor                          # Quick self-diagnosis
+# Quick self-diagnosis (replace version number as needed)
+~/.claude/plugins/cache/typemux-cc-marketplace/typemux-cc/0.2.9/bin/typemux-cc --doctor
 cat ~/.claude/settings.json | grep typemux   # Check plugin settings
 tail -100 /tmp/typemux-cc.log               # Check logs (if file logging enabled)
 ```

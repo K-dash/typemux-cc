@@ -12,7 +12,7 @@
   "hooks": "./hooks.json",
   "lspServers": {
     "typemux-cc": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/typemux-cc-wrapper.sh",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/typemux-cc",
       "args": [],
       "extensionToLanguage": {
         ".py": "python",
