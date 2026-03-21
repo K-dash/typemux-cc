@@ -1,5 +1,6 @@
 use crate::backend::BackendKind;
 use crate::backend_pool;
+use crate::config::ConfigLoadReport;
 use crate::venv;
 use clap::parser::ValueSource;
 use clap::ArgMatches;
@@ -10,9 +11,19 @@ use std::path::PathBuf;
 #[derive(Debug, Serialize)]
 pub struct DoctorReport {
     pub version: String,
+    pub config_file: ConfigFileReport,
     pub configuration: ConfigReport,
     pub environment: EnvironmentReport,
     pub system: SystemReport,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConfigFileReport {
+    pub path: String,
+    pub exists: bool,
+    pub loaded_keys: Vec<String>,
+    pub skipped_keys: Vec<String>,
+    pub parse_errors: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,11 +58,19 @@ pub struct SystemReport {
     pub arch: String,
 }
 
-/// Determine the source label for a CLI argument.
-fn arg_source(matches: &ArgMatches, id: &str) -> String {
+/// Determine the source label for a CLI argument, with config-file provenance.
+fn arg_source(matches: &ArgMatches, id: &str, config_report: &ConfigLoadReport) -> String {
     match matches.value_source(id) {
         Some(ValueSource::CommandLine) => "cli".to_string(),
-        Some(ValueSource::EnvVariable) => format!("env: {}", env_var_name(id)),
+        Some(ValueSource::EnvVariable) => {
+            let env_name = env_var_name(id);
+            // If this env var was loaded from config file, report as config source
+            if config_report.loaded_keys.contains(&env_name.to_string()) {
+                format!("config: {}", config_report.path.display())
+            } else {
+                format!("env: {}", env_name)
+            }
+        }
         Some(ValueSource::DefaultValue) => "default".to_string(),
         _ => "default".to_string(),
     }
@@ -68,10 +87,14 @@ fn env_var_name(id: &str) -> &'static str {
     }
 }
 
-/// Determine source for env-var-only settings (no CLI arg).
-fn env_only_source(env_var: &str) -> String {
+/// Determine source for env-var-only settings (no CLI arg), with config-file provenance.
+fn env_only_source(env_var: &str, config_report: &ConfigLoadReport) -> String {
     if std::env::var(env_var).is_ok() {
-        format!("env: {}", env_var)
+        if config_report.loaded_keys.contains(&env_var.to_string()) {
+            format!("config: {}", config_report.path.display())
+        } else {
+            format!("env: {}", env_var)
+        }
     } else {
         "default".to_string()
     }
@@ -141,14 +164,31 @@ async fn detect_backend_version(command: &str) -> Option<String> {
 }
 
 /// Collect all diagnostic information into a DoctorReport.
-pub async fn collect_doctor_report(backend: &BackendKind, matches: &ArgMatches) -> DoctorReport {
+pub async fn collect_doctor_report(
+    backend: &BackendKind,
+    matches: &ArgMatches,
+    config_report: &ConfigLoadReport,
+) -> DoctorReport {
     let version = env!("CARGO_PKG_VERSION").to_string();
+
+    // Config file report
+    let config_file = ConfigFileReport {
+        path: config_report.path.display().to_string(),
+        exists: config_report.exists,
+        loaded_keys: config_report.loaded_keys.clone(),
+        skipped_keys: config_report.skipped_keys.clone(),
+        parse_errors: config_report
+            .parse_errors
+            .iter()
+            .map(|e| format!("line {}: {} ({})", e.line_number, e.reason, e.raw_line))
+            .collect(),
+    };
 
     // Configuration items from clap ArgMatches
     let backend_item = ConfigItem {
         name: "backend".to_string(),
         value: backend.display_name().to_string(),
-        source: arg_source(matches, "backend"),
+        source: arg_source(matches, "backend", config_report),
     };
 
     let max_backends_value: String = matches
@@ -158,7 +198,7 @@ pub async fn collect_doctor_report(backend: &BackendKind, matches: &ArgMatches) 
     let max_backends_item = ConfigItem {
         name: "max_backends".to_string(),
         value: max_backends_value,
-        source: arg_source(matches, "max_backends"),
+        source: arg_source(matches, "max_backends", config_report),
     };
 
     let backend_ttl_value: String = matches
@@ -168,21 +208,21 @@ pub async fn collect_doctor_report(backend: &BackendKind, matches: &ArgMatches) 
     let backend_ttl_item = ConfigItem {
         name: "backend_ttl".to_string(),
         value: backend_ttl_value,
-        source: arg_source(matches, "backend_ttl"),
+        source: arg_source(matches, "backend_ttl", config_report),
     };
 
     let warmup_timeout = backend_pool::warmup_timeout();
     let warmup_timeout_item = ConfigItem {
         name: "warmup_timeout".to_string(),
         value: warmup_timeout.as_secs().to_string(),
-        source: env_only_source("TYPEMUX_CC_WARMUP_TIMEOUT"),
+        source: env_only_source("TYPEMUX_CC_WARMUP_TIMEOUT", config_report),
     };
 
     let fanout_timeout = backend_pool::fanout_timeout();
     let fanout_timeout_item = ConfigItem {
         name: "fanout_timeout".to_string(),
         value: fanout_timeout.as_secs().to_string(),
-        source: env_only_source("TYPEMUX_CC_FANOUT_TIMEOUT"),
+        source: env_only_source("TYPEMUX_CC_FANOUT_TIMEOUT", config_report),
     };
 
     let log_file_value: String = matches
@@ -194,7 +234,7 @@ pub async fn collect_doctor_report(backend: &BackendKind, matches: &ArgMatches) 
     {
         "default".to_string()
     } else {
-        arg_source(matches, "log_file")
+        arg_source(matches, "log_file", config_report)
     };
     let log_file_item = ConfigItem {
         name: "log_file".to_string(),
@@ -243,6 +283,7 @@ pub async fn collect_doctor_report(backend: &BackendKind, matches: &ArgMatches) 
 
     DoctorReport {
         version,
+        config_file,
         configuration: config,
         environment,
         system,
@@ -274,6 +315,28 @@ pub fn render_human(report: &DoctorReport) -> String {
     let mut out = String::new();
 
     out.push_str(&format!("typemux-cc v{}\n", report.version));
+
+    // Config file info
+    out.push_str("\nConfig file:\n");
+    out.push_str(&format!(
+        "  Path              {}\n",
+        report.config_file.path
+    ));
+    out.push_str(&format!(
+        "  Status            {}\n",
+        if report.config_file.exists {
+            "loaded"
+        } else {
+            "not found"
+        }
+    ));
+    if !report.config_file.parse_errors.is_empty() {
+        out.push_str("  Warnings:\n");
+        for err in &report.config_file.parse_errors {
+            out.push_str(&format!("    ⚠ {}\n", err));
+        }
+    }
+
     out.push_str("\nConfiguration:\n");
 
     // Find max key and value widths for alignment
@@ -351,8 +414,13 @@ pub fn render_human(report: &DoctorReport) -> String {
 }
 
 /// Entry point: collect report, render, and print to stdout. Always exits 0.
-pub async fn run_doctor(backend: &BackendKind, json: bool, matches: &ArgMatches) {
-    let report = collect_doctor_report(backend, matches).await;
+pub async fn run_doctor(
+    backend: &BackendKind,
+    json: bool,
+    matches: &ArgMatches,
+    config_report: &ConfigLoadReport,
+) {
+    let report = collect_doctor_report(backend, matches, config_report).await;
 
     if json {
         match serde_json::to_string_pretty(&report) {
@@ -385,6 +453,13 @@ mod tests {
     fn render_human_output_structure() {
         let report = DoctorReport {
             version: "0.2.8".to_string(),
+            config_file: ConfigFileReport {
+                path: "/home/test/.config/typemux-cc/config".to_string(),
+                exists: true,
+                loaded_keys: vec![],
+                skipped_keys: vec![],
+                parse_errors: vec![],
+            },
             configuration: ConfigReport {
                 items: vec![
                     ConfigItem {
@@ -417,6 +492,8 @@ mod tests {
         let output = render_human(&report);
 
         assert!(output.starts_with("typemux-cc v0.2.8\n"));
+        assert!(output.contains("Config file:"));
+        assert!(output.contains("loaded"));
         assert!(output.contains("Configuration:"));
         assert!(output.contains("backend"));
         assert!(output.contains("pyright"));
@@ -432,6 +509,13 @@ mod tests {
     fn render_human_handles_missing_values() {
         let report = DoctorReport {
             version: "0.2.8".to_string(),
+            config_file: ConfigFileReport {
+                path: "/home/test/.config/typemux-cc/config".to_string(),
+                exists: false,
+                loaded_keys: vec![],
+                skipped_keys: vec![],
+                parse_errors: vec![],
+            },
             configuration: ConfigReport { items: vec![] },
             environment: EnvironmentReport {
                 backend_binary: BackendBinaryInfo {
