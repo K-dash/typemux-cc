@@ -314,29 +314,13 @@ impl super::LspProxy {
                     match original_token {
                         Some(original_token) => {
                             if is_progress_end(&msg) {
-                                if let Some(inst) = self.state.pool.get_mut(&venv_path) {
-                                    if inst.is_warming()
-                                        && inst.indexing_progress_token.as_ref()
-                                            == Some(&original_token)
-                                    {
-                                        tracing::info!(
-                                            venv = %venv_path.display(),
-                                            session = session,
-                                            token = ?original_token,
-                                            "Backend warmup complete (reason: progress), transitioning to Ready"
-                                        );
-                                        let queued = inst.mark_ready();
-                                        if !queued.is_empty() {
-                                            self.drain_warmup_queue(
-                                                &venv_path,
-                                                session,
-                                                queued,
-                                                client_writer,
-                                            )
-                                            .await?;
-                                        }
-                                    }
-                                }
+                                self.complete_warmup_on_progress_end(
+                                    &venv_path,
+                                    session,
+                                    &original_token,
+                                    client_writer,
+                                )
+                                .await?;
                             }
                         }
                         None => {
@@ -373,6 +357,35 @@ impl super::LspProxy {
         }
 
         Ok(())
+    }
+
+    /// Transition a warming backend to `Ready` when a `$/progress` end carries
+    /// its own recorded indexing token, then drain its warmup queue.
+    async fn complete_warmup_on_progress_end(
+        &mut self,
+        venv_path: &PathBuf,
+        session: u64,
+        original_token: &RpcId,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+    ) -> Result<(), ProxyError> {
+        let Some(inst) = self.state.pool.get_mut(venv_path) else {
+            return Ok(());
+        };
+        if !inst.is_warming() || inst.indexing_progress_token.as_ref() != Some(original_token) {
+            return Ok(());
+        }
+        tracing::info!(
+            venv = %venv_path.display(),
+            session = session,
+            token = ?original_token,
+            "Backend warmup complete (reason: progress), transitioning to Ready"
+        );
+        let queued = inst.mark_ready();
+        if queued.is_empty() {
+            return Ok(());
+        }
+        self.drain_warmup_queue(venv_path, session, queued, client_writer)
+            .await
     }
 
     /// Forward a server-initiated (backend→client) request to the client:

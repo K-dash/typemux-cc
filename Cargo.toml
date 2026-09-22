@@ -79,6 +79,13 @@ missing_panics_doc = "deny"
 todo = "deny"
 unimplemented = "deny"
 
+# Backstops the early-return rule in AGENTS.md; the threshold lives in
+# clippy.toml and the lint is inert without it.
+excessive_nesting = "deny"
+
+# A `_` arm on an enum hides new variants; force an explicit decision instead.
+wildcard_enum_match_arm = "deny"
+
 # This is a CLI tool: writing to stdout/stderr is how it reports results and
 # diagnostics to the user, not a debugging leftover.
 print_stdout = "allow"

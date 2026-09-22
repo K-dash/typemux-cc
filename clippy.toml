@@ -1,0 +1,3 @@
+# Ratchet: this is the current deepest nesting, not the target (see AGENTS.md
+# Code Style). Lower it as code is flattened; never raise it.
+excessive-nesting-threshold = 7
