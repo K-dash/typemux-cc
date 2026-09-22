@@ -208,13 +208,14 @@ mod tests {
         let input = format!("Content-Length: {}\r\n\r\n", usize::MAX);
         let mut reader = LspFrameReader::new(input.as_bytes());
         let err = reader.read_message().await.unwrap_err();
-        match err {
-            FramingError::ContentLengthTooLarge { limit, actual } => {
-                assert_eq!(limit, MAX_CONTENT_LENGTH);
-                assert_eq!(actual, usize::MAX);
-            }
-            other => panic!("expected ContentLengthTooLarge, got {other:?}"),
-        }
+        assert!(
+            matches!(
+                err,
+                FramingError::ContentLengthTooLarge { limit, actual }
+                    if limit == MAX_CONTENT_LENGTH && actual == usize::MAX
+            ),
+            "expected ContentLengthTooLarge, got {err:?}"
+        );
     }
 
     /// A frame declaring exactly `MAX_CONTENT_LENGTH` — the boundary the
@@ -238,10 +239,10 @@ mod tests {
         let input = format!("{long_line}\r\nContent-Length: 5\r\n\r\nhello");
         let mut reader = LspFrameReader::new(input.as_bytes());
         let err = reader.read_message().await.unwrap_err();
-        match err {
-            FramingError::HeaderLineTooLong { limit } => assert_eq!(limit, MAX_HEADER_LINE_LEN),
-            other => panic!("expected HeaderLineTooLong, got {other:?}"),
-        }
+        assert!(
+            matches!(err, FramingError::HeaderLineTooLong { limit } if limit == MAX_HEADER_LINE_LEN),
+            "expected HeaderLineTooLong, got {err:?}"
+        );
     }
 
     /// Many header lines, each individually under `MAX_HEADER_LINE_LEN`, but
@@ -260,10 +261,10 @@ mod tests {
 
         let mut reader = LspFrameReader::new(input.as_bytes());
         let err = reader.read_message().await.unwrap_err();
-        match err {
-            FramingError::HeaderBlockTooLarge { limit } => assert_eq!(limit, MAX_HEADER_BLOCK_LEN),
-            other => panic!("expected HeaderBlockTooLarge, got {other:?}"),
-        }
+        assert!(
+            matches!(err, FramingError::HeaderBlockTooLarge { limit } if limit == MAX_HEADER_BLOCK_LEN),
+            "expected HeaderBlockTooLarge, got {err:?}"
+        );
     }
 
     /// A second `Content-Length` header is an explicit error, not a

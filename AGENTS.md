@@ -110,6 +110,8 @@ Before committing, verify:
 - Use `cargo fmt` for formatting
 - All clippy warnings treated as errors (`-D warnings`)
 - **Prefer early returns over deep nesting** — Use guard clauses (`let x = match ... { Err => return }`) to keep the happy path flat. Avoid nesting `match`/`if let` more than 2 levels deep.
+- `clippy::excessive_nesting` backstops the nesting rule at the threshold in `clippy.toml`. It is a ratchet: lower it as code is flattened, never raise it.
+- No `_` arms on enums (`clippy::wildcard_enum_match_arm` is denied), so a new variant forces an explicit decision at every `match`.
 
 ## Testing
 

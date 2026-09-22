@@ -455,14 +455,16 @@ impl ProxyUnderTest {
                         "wait_for_crash_cleanup: unexpected non-notification: {:?}",
                         msg
                     );
-                    if msg.method.as_deref() == Some("textDocument/publishDiagnostics") {
-                        if let Some(params) = &msg.params {
-                            if let Some(diags) = params.get("diagnostics") {
-                                if diags.as_array().is_some_and(std::vec::Vec::is_empty) {
-                                    diag_count += 1;
-                                }
-                            }
-                        }
+                    let is_empty_diagnostics = msg.method.as_deref()
+                        == Some("textDocument/publishDiagnostics")
+                        && msg
+                            .params
+                            .as_ref()
+                            .and_then(|params| params.get("diagnostics"))
+                            .and_then(serde_json::Value::as_array)
+                            .is_some_and(std::vec::Vec::is_empty);
+                    if is_empty_diagnostics {
+                        diag_count += 1;
                     }
                     collected.push(msg);
                 }
