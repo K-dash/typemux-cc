@@ -158,6 +158,13 @@ Look for:
 If the log file doesn't exist, check that log output is configured via the
 `TYPEMUX_CC_LOG_FILE` environment variable.
 
+## Gotchas
+
+- **Only new sessions load a new binary.** The LSP server starts lazily on first use, so an already-running session keeps the old proxy.
+- **`install.sh` replaces a mismatched binary.** At SessionStart it keeps the cached binary only when its `--version` matches `.claude-plugin/plugin.json`; otherwise it downloads the release for that version. A local build must report the plugin's version, or it is silently swapped out. The hash check in Step 8 catches this.
+- **Never overwrite the cached binary in place.** On macOS this invalidates the code signature and new execs die, which then triggers the re-download above. `rm` first, then `cp`.
+- **Hang check for real-client runs.** After `initialize`, the log (`TYPEMUX_CC_LOG_FILE`) must show `Client initialized` within moments. If it never appears, the session is hung, not slow.
+
 ## Common Issues
 
 | Symptom | Cause | Fix |
@@ -166,7 +173,7 @@ If the log file doesn't exist, check that log output is configured via the
 | Plugin not in installed list | Marketplace registration stale | Steps 5-6: remove and re-add the approved marketplace |
 | LSP errors after install | Claude Code not restarted | Step 8: restart required |
 | No log file at `/tmp/` | Log output not configured | Check `TYPEMUX_CC_LOG_FILE` |
-| `cp` prompts for overwrite | Missing `-f` flag | Always use `cp -f` or `rm -f` before copy |
+| Release behavior after a manual binary swap | In-place overwrite broke the binary; `install.sh` re-downloaded the release | `rm` the cached binary, then `cp`; confirm with `<cache path>/typemux-cc --version` |
 
 ## Examples
 

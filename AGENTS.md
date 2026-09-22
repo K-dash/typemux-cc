@@ -27,13 +27,31 @@ See docs/ARCHITECTURE.md for architecture details.
 
 ```bash
 # REQUIRED: Run before completing any work
-make all          # format + lint + test
+make all          # fmt + lint + doc + test (see Makefile)
 
 # Individual commands
 make fmt          # cargo fmt
 make lint         # cargo clippy -- -D warnings
 make test         # cargo test
 ```
+
+## Verification by change type
+
+Select checks from the final diff:
+
+| Change | Checks |
+|---|---|
+| Docs only | None locally (CI runs `make ci`) |
+| Version fields (`Cargo.toml`, `.claude-plugin/*.json`) | `make check-versions` (needs `jq`) |
+| Rust under `src/` | `make all` |
+| Client-visible LSP sequencing (initialize/initialized, routing, document restoration) | `make all` + a real-client check via the `plugin-test-cycle` skill |
+| `install.sh`, `hooks.json` | No automated coverage; run the hook against a scratch plugin root |
+
+What `cargo test` cannot see: integration tests drive `mock-lsp-backend` through a
+fake `pyright-langserver` shim (`tests/support/mod.rs`). They never exercise a real
+Claude Code client or a real type checker.
+
+When reporting, name the commands you ran. "Tests pass" after a partial run is not a report.
 
 ## Git Workflow (MUST FOLLOW)
 
@@ -45,7 +63,7 @@ make test         # cargo test
    ```
 2. **After changes**: Run quality checks
    ```bash
-   make all  # format + lint + test
+   make all  # fmt + lint + doc + test (see Makefile)
    ```
 3. **Update documentation**: If user-facing behavior changes, update README.md
 4. **Commit, when explicitly authorized**: Use conventional commits (feat:, fix:, docs:, etc.)
@@ -74,7 +92,17 @@ Before committing, verify:
 - Treat authorization for issue creation, commits, pushes, and pull requests separately; never infer one from another
 - When user-facing behavior changes, proactively update README.md before committing
 - **No implicit fallbacks** — Never add silent fallback logic that masks errors. Let it fail loudly so unintended behavior is caught early. An explicit error is always better than a silent wrong result.
+  - Wrong: parsing an env var with `.ok()` and silently using the default when the value is invalid (#110; startup now aborts with the variable name and raw value).
+  - Right: carrying a per-venv respawn failure as `StaleOutcome::RespawnFailed`, reporting it via `window/showMessage` and the log, and keeping the proxy running for other venvs (#100). Containing a failure is fine; hiding it is not.
+- **Never overwrite a `typemux-cc` binary in place** — `rm` or atomic-`mv` the destination first. On macOS an in-place overwrite invalidates the code signature and new execs die; the SessionStart `install.sh` then fails its `--version` check and re-downloads the release binary, so you end up testing old code. Confirm a swap by running `<cache path>/typemux-cc --version`, not by hash alone.
 - **No backward compatibility** — Do not preserve backward compatibility unless the user explicitly requests it. Breaking changes are the default; do not add compatibility shims, re-exports, or deprecation wrappers.
+
+## Reviewing Changes
+
+- A review has no finding quota. "No findings" plus the reviewed scope is a complete result.
+- Before reporting a finding, try to disprove it against callers, invariants, and existing tests.
+- Report only issues the diff introduces. Do not flag pre-existing issues, and do not hold human PR authors to the agent-only rules in this file.
+- A missing test is a verification gap, not proof of a runtime defect.
 
 ## Code Style
 
