@@ -87,6 +87,8 @@ Before committing, verify:
 ## Instructions for AI Agents
 
 - **All code comments, commit messages, PR titles, PR descriptions, and review comments MUST be written in English.** No exceptions.
+- **Write for readers who never saw the agent conversation.** Code comments explain current behavior and its rationale. Commit messages and PR descriptions explain what changed and why. Do not reference the conversation, prompts, review rounds, or earlier drafts of the change ("as discussed", "per review", "in the first attempt"). Describing how the old code behaved is fine.
+- **Propose instruction changes; don't slip them in.** During feature or fix work, do not edit `AGENTS.md`, `CLAUDE.md`, or `.claude/skills/`. Write a lesson worth keeping in the PR description as a proposal; if accepted, it lands in its own PR. Edit these files directly only when the task is to change them.
 - Before committing, ALWAYS re-read this Workflow section
 - When user says "commit", first check current branch and create feature branch if on main
 - Treat authorization for issue creation, commits, pushes, and pull requests separately; never infer one from another
